@@ -8,18 +8,19 @@ import urllib
 import requests
 #from _overlapped import NULL
 from bs4 import BeautifulSoup
-from charset_normalizer import logging
 from dotenv import dotenv_values
 from redis import Redis
 
-from utils import get_zip_filename_by_dir, make_zip
+from log import log
+from utils import get_requests_proxies, get_zip_filename_by_dir, make_zip
+
 
 env_config = dotenv_values()
-log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
 
 DOWNLOADED_URL_REDIS_KEY = 'downloaded_urls'
 redis_conn = Redis.from_url(os.environ.get('REDIS_URL'))
+
+proxies = get_requests_proxies()
 
 NULL = None
 headers = {
@@ -46,9 +47,13 @@ def saveFile(url, path, cookiep):
         response = requests.get(url,
                                 headers=headers,
                                 cookies=cookiep,
-                                stream=True)
+                                stream=True,
+                                proxies=proxies)
     else:
-        response = requests.get(url, headers=headers, stream=True)
+        response = requests.get(url,
+                                headers=headers,
+                                stream=True,
+                                proxies=proxies)
     log.info('remote size: {}'.format(response.headers['Content-Length']))
     remote_size = int(response.headers['Content-Length'])
     if remote_size == local_file_size:
@@ -65,9 +70,12 @@ def saveFile(url, path, cookiep):
 
 def getWebsite(url, time1, spath, cookiep):
     if cookiep != NULL:
-        site = requests.get(url, headers=headers, cookies=cookiep)
+        site = requests.get(url,
+                            headers=headers,
+                            cookies=cookiep,
+                            proxies=proxies)
     else:
-        site = requests.get(url, headers=headers)
+        site = requests.get(url, headers=headers, proxies=proxies)
     content = site.text
     soup = BeautifulSoup(content, 'lxml')
     divs = soup.find_all(class_='gdtl')
@@ -97,9 +105,12 @@ def getWebsite(url, time1, spath, cookiep):
 
 def getPicUrl(url, cookiep):
     if (cookiep != NULL):
-        site_2 = requests.get(url, headers=headers, cookies=cookiep)
+        site_2 = requests.get(url,
+                              headers=headers,
+                              cookies=cookiep,
+                              proxies=proxies)
     else:
-        site_2 = requests.get(url, headers=headers)
+        site_2 = requests.get(url, headers=headers, proxies=proxies)
     content_2 = site_2.text
     soup_2 = BeautifulSoup(content_2, 'lxml')
     imgs = soup_2.find_all(id="img")
@@ -122,9 +133,12 @@ def menu_single_download(e_or_ex, cookies2):
         log.info('--获取信息中--')
         try:
             if (e_or_ex == "2"):
-                site = requests.get(url, headers=headers, cookies=cookies2)
+                site = requests.get(url,
+                                    headers=headers,
+                                    cookies=cookies2,
+                                    proxies=proxies)
             else:
-                site = requests.get(url, headers=headers)
+                site = requests.get(url, headers=headers, proxies=proxies)
             content = site.text
             soup = BeautifulSoup(content, 'lxml')
             divs = soup.find_all(class_='gdtl')
@@ -171,9 +185,12 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
             if cookies2 != NULL:
                 site = requests.get(url + str(int_page),
                                     headers=headers,
-                                    cookies=cookies2)
+                                    cookies=cookies2,
+                                    proxies=proxies)
             else:
-                site = requests.get(url + str(int_page), headers=headers)
+                site = requests.get(url + str(int_page),
+                                    headers=headers,
+                                    proxies=proxies)
             content = site.text
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
@@ -188,7 +205,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                                    and index == line_mod - 1):
                     break
     except Exception as ex:
-        log.error('menu_tag_urls, 错误,输入或网络问题, ex:{}', ex)
+        log.error('menu_tag_urls, 错误,输入或网络问题, ex:%s', ex)
         raise ex
         menu()
     else:
@@ -199,9 +216,12 @@ def menu_tag_download(url, cookies2, spath, startTime1):
     try:
         log.info('menu_tag_download')
         if cookies2 != NULL:
-            site = requests.get(url, headers=headers, cookies=cookies2)
+            site = requests.get(url,
+                                headers=headers,
+                                cookies=cookies2,
+                                proxies=proxies)
         else:
-            site = requests.get(url, headers=headers)
+            site = requests.get(url, headers=headers, proxies=proxies)
         content = site.text
         soup = BeautifulSoup(content, 'lxml')
         table = soup.find_all(class_='ptt')
