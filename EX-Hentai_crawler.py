@@ -4,16 +4,19 @@ import os
 import re
 import time
 import urllib
-from json import load
-from turtle import onclick
 
 import requests
 #from _overlapped import NULL
 from bs4 import BeautifulSoup
+from charset_normalizer import logging
 from dotenv import dotenv_values
 from redis import Redis
 
+from utils import get_zip_filename_by_dir, make_zip
+
 env_config = dotenv_values()
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 DOWNLOADED_URL_REDIS_KEY = 'downloaded_urls'
 redis_conn = Redis.from_url(os.environ.get('REDIS_URL'))
@@ -35,23 +38,29 @@ def saveFile(url, path, cookiep):
     local_file_size = 0
     try:
         local_file_size = os.path.getsize(path)
-        print('{} size={}'.format(path, local_file_size))
+        log.info('{} size={}'.format(path, local_file_size))
     except:
         pass
 
     if (cookiep != NULL):
-        response = requests.get(url, headers=headers, cookies=cookiep)
+        response = requests.get(url,
+                                headers=headers,
+                                cookies=cookiep,
+                                stream=True)
     else:
-        response = requests.get(url, headers=headers)
-    print('remote size: {}'.format(response.headers['Content-Length']))
-    if int(response.headers['Content-Length']) == local_file_size:
-        print(
+        response = requests.get(url, headers=headers, stream=True)
+    log.info('remote size: {}'.format(response.headers['Content-Length']))
+    remote_size = int(response.headers['Content-Length'])
+    if remote_size == local_file_size:
+        log.info(
             '{} local and remote has same size, skip write file'.format(path))
         return
+    # TODO continue download
     with open(path, 'wb') as f:
-        f.write(response.content)
-        f.flush()
-    print('done')
+        for chunk in response.iter_content(chunk_size=1024):
+            f.write(chunk)
+            f.flush()
+    log.info('done')
 
 
 def getWebsite(url, time1, spath, cookiep):
@@ -70,19 +79,20 @@ def getWebsite(url, time1, spath, cookiep):
     for div in divs:
         picUrl = div.a.get('href')
         alt = '{}.jpg'.format(div.img['alt'])
-        print('下载中 {}: {}.jpg'.format(new_title2, alt))
+        log.info('下载中 {}: {}.jpg'.format(new_title2, alt))
         try:
             save_filename = os.path.join(spath, new_title2, alt)
             saveFile(getPicUrl(picUrl, cookiep), save_filename, cookiep)
         except Exception as ex:
-            print('无法下载 {}: {}.jpg'.format(new_title2, alt))
+            log.exception('无法下载 {}: {}.jpg, ex: {}'.format(
+                new_title2, alt, ex))
         else:
-            print('成功')
+            log.info('成功')
             i = i + 1
-    print('成功 下载: {}'.format(i))
+    log.info('成功 下载: {}'.format(i))
     endTime1 = time.time()
-    print("耗时：", end=' ')
-    print(endTime1 - time1)
+    log.info("耗时：", end=' ')
+    log.info(endTime1 - time1)
 
 
 def getPicUrl(url, cookiep):
@@ -105,11 +115,11 @@ def menu_single_download(e_or_ex, cookies2):
     # root.withdraw()
     # spath = filedialog.askdirectory() + "/"
     spath = env_config['DOWN_PATH'] + "/"
-    print('保存路径:', spath)
+    log.info('保存路径:', spath)
     startTime1 = time.time()
     if url.find('https://e-hentai.org/g/') != -1 or url.find(
             'https://exhentai.org/g/') != -1:
-        print('--获取信息中--')
+        log.info('--获取信息中--')
         try:
             if (e_or_ex == "2"):
                 site = requests.get(url, headers=headers, cookies=cookies2)
@@ -123,19 +133,24 @@ def menu_single_download(e_or_ex, cookies2):
             for div in divs:
                 page = page + 1
         except Exception as ex:
-            print('错误,输入或网络问题 ' + str(ex))
+            log.exception('错误,输入或网络问题 ' + str(ex))
             menu()
         else:
-            print('本子名 ' + title + ',共 ' + str(page) + ' 页,开始爬取')
+            log.info('本子名 ' + title + ',共 ' + str(page) + ' 页,开始爬取')
             rr = r"[\/\\\:\*\?\"\<\>\|]"
             new_title = re.sub(rr, "-", title)
-            if os.path.exists(spath + new_title):
+            folder_path = os.path.join(spath, new_title)
+            zip_filename = get_zip_filename_by_dir(folder_path)
+            if os.path.exists(zip_filename):
+                log.info('{} 已存在'.format(zip_filename))
+                return
+            if os.path.exists(folder_path):
                 getWebsite(url, startTime1, spath, cookies2)
             else:
-                os.mkdir(spath + new_title)
+                os.mkdir(folder_path)
                 getWebsite(url, startTime1, spath, cookies2)
     else:
-        print('非e站 url,重新输入\n')
+        log.warning('非e站 url,重新输入\n')
         menu()
 
 
@@ -147,8 +162,8 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
     else:
         url = 'https://e-hentai.org/?f_cats=1019&f_search=' + f_tag + '&page='
 
-    print('爬取前' + str(f_tag_num) + '本')
-    print('--获取信息中--')
+    log.info('爬取前' + str(f_tag_num) + '本')
+    log.info('--获取信息中--')
     try:
         int_pages = f_tag_num // page_line_count
         line_mod = f_tag_num % page_line_count
@@ -162,10 +177,10 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
             content = site.text
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
-            print('当前页面:' + url + str(int_page))
+            log.info('当前页面:' + url + str(int_page))
             for index, a in enumerate(tds):
                 href = a.parent['href']
-                print(str(int_page * 25 + index + 1) + ':' + href)
+                log.info(str(int_page * 25 + index + 1) + ':' + href)
                 urls.append(href)
 
                 if (25 > f_tag_num - 1 ==
@@ -173,7 +188,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                                    and index == line_mod - 1):
                     break
     except Exception as ex:
-        print('错误,输入或网络问题')
+        log.error('menu_tag_urls, 错误,输入或网络问题, ex:{}', ex)
         raise ex
         menu()
     else:
@@ -182,7 +197,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
 
 def menu_tag_download(url, cookies2, spath, startTime1):
     try:
-        print('menu_tag_download')
+        log.info('menu_tag_download')
         if cookies2 != NULL:
             site = requests.get(url, headers=headers, cookies=cookies2)
         else:
@@ -203,19 +218,29 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         # for div in divs:
         #     page = page + 1
     except Exception as ex:
-        print('错误,输入或网络问题: ' + str(ex))
+        log.error('menu_tag_download: 错误,输入或网络问题: %s', ex)
         menu()
     else:
         s = '本子名:{},views:{},开始爬取'.format(title, view_count)
-        print(s)
+        log.info(s)
         rr = r"[\/\\\:\*\?\"\<\>\|]"
         new_title = re.sub(rr, "-", title)
-        if not os.path.exists(spath + new_title):
-            os.mkdir(spath + new_title)
+        folder_path = os.path.join(spath, new_title)
+        zip_filename = get_zip_filename_by_dir(folder_path)
+        if os.path.exists(zip_filename):
+            log.info('{} ZIP已存在'.format(zip_filename))
+            return
+        if not os.path.exists(folder_path):
+            os.mkdir(folder_path)
+
         for view in range(0, view_count):
-            print('当前view:{}'.format(view + 1))
+            log.info('当前view:{}'.format(view + 1))
             view_url = '{}?p={}'.format(url, view + 1)
             getWebsite(view_url, startTime1, spath, cookies2)
+
+        log.info('生成zip 文件: {}'.format(zip_filename))
+        make_zip(folder_path, True)
+        log.info('生成zip 文件: {} 完成'.format(zip_filename))
 
         redis_conn.sadd(DOWNLOADED_URL_REDIS_KEY, url)
 
@@ -228,7 +253,7 @@ def tag_multiprocessing(m_urls: list, cookies2):
     for url in m_urls:
         if redis_conn.smismember(DOWNLOADED_URL_REDIS_KEY, url)[0]:
             m_urls.remove(url)
-            print('{} 已经下载过了'.format(url))
+            log.info('{} 已经下载过了'.format(url))
             continue
 
     # print("选择保存位置文件夹")
@@ -236,12 +261,12 @@ def tag_multiprocessing(m_urls: list, cookies2):
     # root.withdraw()
     # spath = filedialog.askdirectory() + "/"
     spath = env_config['DOWN_PATH'] + "/"
-    print('保存路径:', spath)
+    log.info('保存路径:', spath)
     startTime1 = time.time()
-    print('--获取信息中--')
+    log.info('--获取信息中--')
     pool = multiprocessing.Pool(processes=10)
     for url in m_urls:
-        print(url)
+        log.info(url)
         pool.apply_async(menu_tag_download, (url, cookies2, spath, startTime1))
     pool.close()
     pool.join()
@@ -250,10 +275,10 @@ def tag_multiprocessing(m_urls: list, cookies2):
 def menu():
     cookies2 = NULL
     m_urls = []
-    print("E-Hentai&EX-Hentai下载器V1.2")
-    print('可爬取e-hentai和exhentai的表里站下的内容')
-    print('Win10下使用可能会有卡住窗口缓冲区的问题，若遇到某张图片久久没有下载成功的情况，按任意键即可')
-    print('*****注意*****需要爬取ehentai还是exhentai?')
+    log.info("E-Hentai&EX-Hentai下载器V1.2")
+    log.info('可爬取e-hentai和exhentai的表里站下的内容')
+    log.info('Win10下使用可能会有卡住窗口缓冲区的问题，若遇到某张图片久久没有下载成功的情况，按任意键即可')
+    log.info('*****注意*****需要爬取ehentai还是exhentai?')
     #e_or_ex = input('ehentai输入1----exhentai输入2----按tag爬取输入3\n')
     e_or_ex = env_config['SEARCH_TYPE']
     if e_or_ex == "1":
@@ -277,7 +302,7 @@ def menu():
         #     '输入tag--xxxx:xxx形式,多个tag示例--language:xx f:xxx--多个tag间用空格隔开\n')
         f_tag = env_config['EH_TAG']
         f_tag = urllib.parse.quote(f_tag)
-        print(f_tag)
+        log.info(f_tag)
         # f_tag_num = input('输入下载数量\n')
         f_tag_num = env_config['EH_DOWN_NUM']
         f_tag_num = int(f_tag_num)
