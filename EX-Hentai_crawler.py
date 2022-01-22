@@ -5,13 +5,19 @@ import re
 import time
 import urllib
 from json import load
+from turtle import onclick
 
 import requests
 #from _overlapped import NULL
 from bs4 import BeautifulSoup
 from dotenv import dotenv_values
+from redis import Redis
 
 env_config = dotenv_values()
+
+DOWNLOADED_URL_REDIS_KEY = 'downloaded_urls'
+redis_conn = Redis.from_url(os.environ.get('REDIS_URL'))
+
 NULL = None
 headers = {
     'User-Agent':
@@ -25,13 +31,27 @@ headers = {
 
 
 def saveFile(url, path, cookiep):
+    # check local file
+    local_file_size = 0
+    try:
+        local_file_size = os.path.getsize(path)
+        print('{} size={}'.format(path, local_file_size))
+    except:
+        pass
+
     if (cookiep != NULL):
         response = requests.get(url, headers=headers, cookies=cookiep)
     else:
         response = requests.get(url, headers=headers)
+    print('remote size: {}'.format(response.headers['Content-Length']))
+    if int(response.headers['Content-Length']) == local_file_size:
+        print(
+            '{} local and remote has same size, skip write file'.format(path))
+        return
     with open(path, 'wb') as f:
         f.write(response.content)
         f.flush()
+    print('done')
 
 
 def getWebsite(url, time1, spath, cookiep):
@@ -45,23 +65,21 @@ def getWebsite(url, time1, spath, cookiep):
     title = soup.h1.get_text()
     rr = r"[\/\\\:\*\?\"\<\>\|]"
     new_title2 = re.sub(rr, "-", title)
-    page = 0
     i = 0
+    divs.sort(key=lambda x: x.img['alt'])
     for div in divs:
         picUrl = div.a.get('href')
-        page = page + 1
-        print('下载中 ' + new_title2 + str(page) + '.jpg')
+        alt = '{}.jpg'.format(div.img['alt'])
+        print('下载中 {}: {}.jpg'.format(new_title2, alt))
         try:
-            saveFile(
-                getPicUrl(picUrl, cookiep),
-                spath + new_title2 + '/' + new_title2 + str(page) + '.jpg',
-                cookiep)
+            save_filename = os.path.join(spath, new_title2, alt)
+            saveFile(getPicUrl(picUrl, cookiep), save_filename, cookiep)
         except Exception as ex:
-            print('无法下载' + new_title2 + str(page) + '.jpg' + '  ' + str(ex))
+            print('无法下载 {}: {}.jpg'.format(new_title2, alt))
         else:
             print('成功')
             i = i + 1
-    print('成功 下载' + str(page) + ' 个文件,' + str(i))
+    print('成功 下载: {}'.format(i))
     endTime1 = time.time()
     print("耗时：", end=' ')
     print(endTime1 - time1)
@@ -171,26 +189,47 @@ def menu_tag_download(url, cookies2, spath, startTime1):
             site = requests.get(url, headers=headers)
         content = site.text
         soup = BeautifulSoup(content, 'lxml')
+        table = soup.find_all(class_='ptt')
+        tds = table[0].find_all('td')
+        view_count = 0
+        for td in tds:
+            if 'onclick' in td.attrs:
+                if td['onclick'] == 'document.location=this.firstChild.href':
+                    view_count += 1
+        if view_count == 0: view_count = 1
         divs = soup.find_all(class_='gdtl')
         title = str(soup.h1.get_text())
-        page = 0
-        for div in divs:
-            page = page + 1
+        # page = 0
+        # for div in divs:
+        #     page = page + 1
     except Exception as ex:
         print('错误,输入或网络问题: ' + str(ex))
         menu()
     else:
-        print('本子名 ' + title + ',共 ' + str(page) + ' 页,开始爬取')
+        s = '本子名:{},views:{},开始爬取'.format(title, view_count)
+        print(s)
         rr = r"[\/\\\:\*\?\"\<\>\|]"
         new_title = re.sub(rr, "-", title)
-        if os.path.exists(spath + new_title):
-            getWebsite(url, startTime1, spath, cookies2)
-        else:
+        if not os.path.exists(spath + new_title):
             os.mkdir(spath + new_title)
-            getWebsite(url, startTime1, spath, cookies2)
+        for view in range(0, view_count):
+            print('当前view:{}'.format(view + 1))
+            view_url = '{}?p={}'.format(url, view + 1)
+            getWebsite(view_url, startTime1, spath, cookies2)
+
+        redis_conn.sadd(DOWNLOADED_URL_REDIS_KEY, url)
 
 
-def tag_multiprocessing(m_urls, cookies2):
+def tag_multiprocessing(m_urls: list, cookies2):
+    # m_urls = ['https://e-hentai.org/g/2118247/5445976a9e/']
+    if 'https://e-hentai.org/g/2118247/5445976a9e/' in m_urls:
+        m_urls.remove('https://e-hentai.org/g/2118247/5445976a9e/')
+
+    for url in m_urls:
+        if redis_conn.smismember(DOWNLOADED_URL_REDIS_KEY, url)[0]:
+            m_urls.remove(url)
+            print('{} 已经下载过了'.format(url))
+            continue
 
     # print("选择保存位置文件夹")
     # root = tk.Tk()
