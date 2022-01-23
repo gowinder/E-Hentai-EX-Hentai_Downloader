@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import multiprocessing
 import os
 import re
 import time
 import urllib
 
+import aiofiles
+import httpx
+import progressbar
+import redis
 import requests
 #from _overlapped import NULL
 from bs4 import BeautifulSoup
@@ -14,10 +19,12 @@ from redis import Redis
 from log import log
 from utils import get_requests_proxies, get_zip_filename_by_dir, make_zip
 
-
 env_config = dotenv_values()
 
-DOWNLOADED_URL_REDIS_KEY = 'downloaded_urls'
+DOWNLOADED_URL_REDIS_KEY = 'crawler:url:downloaded'
+QUEUED_URL_REDIS_KEY = 'crawler:url:queued'
+DOWNLOADING_URL_REDIS_KEY = 'crawler:url:downloading'
+FAILED_URL_REDIS_KEY = 'crawler:url:failed'
 redis_conn = Redis.from_url(os.environ.get('REDIS_URL'))
 
 proxies = get_requests_proxies()
@@ -34,41 +41,75 @@ headers = {
 }
 
 
-def saveFile(url, path, cookiep):
+async def saveFile(image_url, path, cookiep, bar_info):
     # check local file
     local_file_size = 0
     try:
         local_file_size = os.path.getsize(path)
-        log.info('{} size={}'.format(path, local_file_size))
+        log.debug('{} size={}'.format(path, local_file_size))
+        if local_file_size > 20 * 1024:  # more than 20k,skip download for debug to accellerate
+            log.debug('{} skipped'.format(path))
+            image_url['result'] = True
+            return image_url
     except:
         pass
 
-    if (cookiep != NULL):
-        response = requests.get(url,
-                                headers=headers,
-                                cookies=cookiep,
-                                stream=True,
-                                proxies=proxies)
-    else:
-        response = requests.get(url,
-                                headers=headers,
-                                stream=True,
-                                proxies=proxies)
-    log.info('remote size: {}'.format(response.headers['Content-Length']))
-    remote_size = int(response.headers['Content-Length'])
-    if remote_size == local_file_size:
-        log.info(
-            '{} local and remote has same size, skip write file'.format(path))
-        return
-    # TODO continue download
-    with open(path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=1024):
-            f.write(chunk)
-            f.flush()
-    log.info('done')
+    retry = 0
+    MAX_RETRY = 5
+    while retry < MAX_RETRY:
+        try:
+            timeout = float(env_config['CLIENT_TIMEOUT'])
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                # response = await client.get(url,
+                #                     headers=headers,
+                #                     cookies=cookiep,
+                #                     stream=True,
+                #                     proxies=proxies)
+                async with client.stream('GET',
+                                         image_url['url'],
+                                         headers=headers,
+                                         cookies=cookiep) as response:
+
+                    if response.status_code != 200:
+                        log.error('{}, {}: status_code={}'.format(
+                            image_url['url'], path, response.status_code))
+                        continue
+                    log.debug('remote size: {}'.format(
+                        response.headers['Content-Length']))
+                    remote_size = int(response.headers['Content-Length'])
+                    if remote_size == local_file_size:
+                        log.debug(
+                            '{} local and remote has same size, skip write file'
+                            .format(path))
+                        image_url['result'] = True
+                        return image_url
+                    # TODO continue download
+                    async with aiofiles.open(path, 'wb') as f:
+                        #for chunk in response.iter_content(chunk_size=1024):
+                        async for chunk in response.aiter_bytes(
+                                chunk_size=1024):
+                            await f.write(chunk)
+                            await f.flush()
+                    break
+        except Exception as ex:
+            log.exception('无法下载 {}: retry: {}, {}.jpg, ex: {}'.format(
+                image_url, retry, path, type(ex)))
+            retry += 1
+    if retry >= MAX_RETRY:
+        log.error('{} download failed, retry={}'.format(path, retry))
+        image_url['result'] = False
+        return image_url
+
+    image_url['result'] = True
+    bar_info[1] += 1
+    bar_info[0].update(bar_info[1])
+    log.debug('done')
+    return image_url
 
 
-def getWebsite(url, time1, spath, cookiep):
+def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
+                             bar_info):
+    image_urls = []
     if cookiep != NULL:
         site = requests.get(url,
                             headers=headers,
@@ -82,41 +123,122 @@ def getWebsite(url, time1, spath, cookiep):
     title = soup.h1.get_text()
     rr = r"[\/\\\:\*\?\"\<\>\|]"
     new_title2 = re.sub(rr, "-", title)
-    i = 0
     divs.sort(key=lambda x: x.img['alt'])
     for div in divs:
         picUrl = div.a.get('href')
         alt = '{}.jpg'.format(div.img['alt'])
-        log.info('下载中 {}: {}.jpg'.format(new_title2, alt))
+        log.debug('下载中 {}: {}.jpg'.format(new_title2, alt))
         try:
             save_filename = os.path.join(spath, new_title2, alt)
-            saveFile(getPicUrl(picUrl, cookiep), save_filename, cookiep)
+            if alt in exclude:
+                log.debug('{} skipped'.format(save_filename))
+                continue
+            #await saveFile(getPicUrl(picUrl, cookiep), save_filename, cookiep)
+            image_url = getPicUrl(picUrl, cookiep)
+            if image_url:
+                image_urls.append({
+                    'url': image_url,
+                    'filename': save_filename,
+                    'alt': alt
+                })
         except Exception as ex:
             log.exception('无法下载 {}: {}.jpg, ex: {}'.format(
                 new_title2, alt, ex))
+            continue
+
+    return new_title2, image_urls
+
+
+async def getWebsite(url, time1, spath, cookiep, bar_info):
+
+    exclude = set()
+    retry = 0
+    MAX_RETRY = 5
+    failed_count = 0
+    image_urls = []
+    while retry < MAX_RETRY:
+        tasks = []
+        new_title2, image_urls = get_view_images_url_list(
+            exclude, url, time1, spath, cookiep, bar_info)
+        for image in image_urls:
+
+            log.debug('下载中 {}: {}.jpg'.format(new_title2, image['alt']))
+            try:
+                save_filename = os.path.join(spath, new_title2, image['alt'])
+                tasks.append(
+                    asyncio.ensure_future(
+                        saveFile(image, save_filename, cookiep, bar_info)))
+            except Exception as ex:
+                log.exception('无法下载 {}: {}.jpg, ex: {}'.format(
+                    new_title2, image['alt'], ex))
+                return False
+            # else:
+            #     log.debug('成功')
+            #     bar_info[1] += 1
+            #     bar_info[0].update(bar_info[1])
+
+        image_urls = await asyncio.gather(*tasks)
+        for image_url in image_urls:
+            if not image_url['result']:
+                failed_count += 1
+            else:
+                exclude.add(image_url['alt'])
+
+        if failed_count > 0:
+            retry += 1
+            log.debug('{} failed:{}, retry={}'.format(new_title2, failed_count,
+                                                      retry))
         else:
-            log.info('成功')
-            i = i + 1
-    log.info('成功 下载: {}'.format(i))
-    endTime1 = time.time()
-    log.info("耗时：", end=' ')
-    log.info(endTime1 - time1)
+            break
+
+    # if failed_count > 0:
+    #     log.error('{} failed {}/{}'.format(new_title2, failed_count,
+    #                                        len(image_url)))
+
+    #     allowed_failed_percent = float(env_config['ALLOWED_FAILED_PERCENT'])
+    #     failed_percent = failed_count * 100 / len(image_url)
+    #     if failed_percent < allowed_failed_percent:
+    #         log.info('{} failed {}%, make it success'.format(
+    #             new_title2, failed_percent))
+    #         return False
+
+    #     return False
+
+    if failed_count == 0:
+        log.debug('成功 下载: {}'.format(bar_info[1]))
+        endTime1 = time.time()
+        log.debug("耗时：", end=' ')
+        log.debug(endTime1 - time1)
+        return True
+    else:
+        log.error('{} failed {}/{}'.format(new_title2, failed_count,
+                                           image_urls))
+
+        allowed_failed_percent = float(env_config['ALLOWED_FAILED_PERCENT'])
+        failed_percent = failed_count * 100 / len(image_url)
+        if failed_percent < allowed_failed_percent:
+            log.info('{} failed {}%, make it success'.format(
+                new_title2, failed_percent))
+            return True
+        return False
 
 
-def getPicUrl(url, cookiep):
+def getPicUrl(image_url, cookiep):
     if (cookiep != NULL):
-        site_2 = requests.get(url,
+        site_2 = requests.get(image_url,
                               headers=headers,
                               cookies=cookiep,
                               proxies=proxies)
     else:
-        site_2 = requests.get(url, headers=headers, proxies=proxies)
+        site_2 = requests.get(image_url, headers=headers, proxies=proxies)
     content_2 = site_2.text
     soup_2 = BeautifulSoup(content_2, 'lxml')
     imgs = soup_2.find_all(id="img")
-    for img in imgs:
-        picSrc = img['src']
-        return picSrc
+
+    # for img in imgs:
+    #     picSrc = img['src']
+    #     return picSrc
+    return imgs[0]['src']
 
 
 def menu_single_download(e_or_ex, cookies2):
@@ -172,9 +294,11 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
     page_line_count = 25
     urls = []
     if cookies2 != NULL:
-        url = 'https://exhentai.org/?f_cats=1019&f_search=' + f_tag + '&page='
+        url = 'https://exhentai.org/?f_cats=1019&f_search={}+&advsearch=1&f_stags=on&f_sr=on&f_srdd=4&page='.format(
+            f_tag)
+        # url = 'https://exhentai.org/?f_sr=on&f_srdd=4&f_cats=1019&f_search=' + f_tag + '&page='
     else:
-        url = 'https://e-hentai.org/?f_cats=1019&f_search=' + f_tag + '&page='
+        url = 'https://e-hentai.org/?f_sr=on&f_srdd=4&f_cats=1019&f_search=' + f_tag + '&page='
 
     log.info('爬取前' + str(f_tag_num) + '本')
     log.info('--获取信息中--')
@@ -214,7 +338,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
 
 def menu_tag_download(url, cookies2, spath, startTime1):
     try:
-        log.info('menu_tag_download')
+        log.info('menu_tag_download: %s', url)
         if cookies2 != NULL:
             site = requests.get(url,
                                 headers=headers,
@@ -253,16 +377,30 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         if not os.path.exists(folder_path):
             os.mkdir(folder_path)
 
-        for view in range(0, view_count):
-            log.info('当前view:{}'.format(view + 1))
-            view_url = '{}?p={}'.format(url, view + 1)
-            getWebsite(view_url, startTime1, spath, cookies2)
+        index = 0
+        with progressbar.ProgressBar(max_value=view_count * 20) as bar:
+            bar_info = [bar, index]
+            for view in range(0, view_count):
+                log.debug('当前view:{}'.format(view + 1))
+                if view == 0:
+                    view_url = url
+                else:
+                    view_url = '{}?p={}'.format(url, view + 1)
+                ret = asyncio.run(
+                    getWebsite(view_url, startTime1, spath, cookies2,
+                               bar_info))
+                # TODO failed asyncio job handle
+                if not ret:
+                    log.error('{} 当前view:{}: failed asyncio job handle'.format(
+                        new_title, view + 1))
+                    return
 
         log.info('生成zip 文件: {}'.format(zip_filename))
         make_zip(folder_path, True)
         log.info('生成zip 文件: {} 完成'.format(zip_filename))
 
         redis_conn.sadd(DOWNLOADED_URL_REDIS_KEY, url)
+        redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
 
 
 def tag_multiprocessing(m_urls: list, cookies2):
@@ -281,15 +419,18 @@ def tag_multiprocessing(m_urls: list, cookies2):
     # root.withdraw()
     # spath = filedialog.askdirectory() + "/"
     spath = env_config['DOWN_PATH'] + "/"
-    log.info('保存路径:', spath)
+    log.info('保存路径:%s', spath)
     startTime1 = time.time()
     log.info('--获取信息中--')
-    pool = multiprocessing.Pool(processes=10)
+    max_process_num = int(env_config['PROCESS_NUM'])
     for url in m_urls:
-        log.info(url)
-        pool.apply_async(menu_tag_download, (url, cookies2, spath, startTime1))
-    pool.close()
-    pool.join()
+        menu_tag_download(url, cookies2, spath, startTime1)
+    # pool = multiprocessing.Pool(processes=max_process_num)
+    # for url in m_urls:
+    #     log.info(url)
+    #     pool.apply_async(menu_tag_download, (url, cookies2, spath, startTime1))
+    # pool.close()
+    # pool.join()
 
 
 def menu():
@@ -326,9 +467,31 @@ def menu():
         # f_tag_num = input('输入下载数量\n')
         f_tag_num = env_config['EH_DOWN_NUM']
         f_tag_num = int(f_tag_num)
-        m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num)
+        while True:
+            urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
+            urls.sort()
+            if len(urls) > 0:
+                urls = [url.decode('utf-8') for url in urls[:10]]
+                tag_multiprocessing(urls, cookies2)
 
-        tag_multiprocessing(m_urls, cookies2)
+            m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num)
+            for url in m_urls:
+                redis_conn.sadd(QUEUED_URL_REDIS_KEY, url)
+
+            urls = list(redis_conn.smembers(QUEUED_URL_REDIS_KEY))[:10]
+            urls = [url.decode('utf-8') for url in urls]
+            for url in urls:
+                redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
+            tag_multiprocessing(urls, cookies2)
+
+            if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
+                    and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
+                # use failed queue
+                urls = list(redis_conn.smembers(FAILED_URL_REDIS_KEY))[:10]
+                urls = [url.decode('utf-8') for url in urls]
+                for url in urls:
+                    redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
+            tag_multiprocessing(urls, cookies2)
 
 
 if __name__ == "__main__":
