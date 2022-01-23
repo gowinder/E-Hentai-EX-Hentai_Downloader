@@ -92,7 +92,7 @@ async def saveFile(image_url, path, cookiep, bar_info):
                             await f.flush()
                     break
         except Exception as ex:
-            log.exception('无法下载 {}: retry: {}, {}.jpg, ex: {}'.format(
+            log.error('无法下载 {}: retry: {}, {}.jpg, ex: {}'.format(
                 image_url, retry, path, type(ex)))
             retry += 1
     if retry >= MAX_RETRY:
@@ -142,8 +142,8 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
                     'alt': alt
                 })
         except Exception as ex:
-            log.exception('无法下载 {}: {}.jpg, ex: {}'.format(
-                new_title2, alt, ex))
+            log.error('无法下载 {}: {}.jpg, ex: {}'.format(
+                new_title2, alt, type(ex)))
             continue
 
     return new_title2, image_urls
@@ -169,8 +169,8 @@ async def getWebsite(url, time1, spath, cookiep, bar_info):
                     asyncio.ensure_future(
                         saveFile(image, save_filename, cookiep, bar_info)))
             except Exception as ex:
-                log.exception('无法下载 {}: {}.jpg, ex: {}'.format(
-                    new_title2, image['alt'], ex))
+                log.error('无法下载 {}: {}.jpg, ex: {}'.format(
+                    new_title2, image['alt'], type(ex)))
                 return False
             # else:
             #     log.debug('成功')
@@ -269,7 +269,7 @@ def menu_single_download(e_or_ex, cookies2):
             for div in divs:
                 page = page + 1
         except Exception as ex:
-            log.exception('错误,输入或网络问题 ' + str(ex))
+            log.error('错误,输入或网络问题 ' + str(ex))
             menu()
         else:
             log.info('本子名 ' + title + ',共 ' + str(page) + ' 页,开始爬取')
@@ -329,8 +329,8 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                                    and index == line_mod - 1):
                     break
     except Exception as ex:
-        log.error('menu_tag_urls, 错误,输入或网络问题, ex:%s', ex)
-        raise ex
+        log.error('menu_tag_urls, 错误,输入或网络问题, ex:%s', type(ex))
+        # raise ex
         menu()
     else:
         return urls
