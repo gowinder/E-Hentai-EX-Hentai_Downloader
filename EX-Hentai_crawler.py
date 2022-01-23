@@ -482,6 +482,7 @@ def menu():
             urls = [url.decode('utf-8') for url in urls]
             for url in urls:
                 redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
+                redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
             tag_multiprocessing(urls, cookies2)
 
             if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
@@ -491,6 +492,7 @@ def menu():
                 urls = [url.decode('utf-8') for url in urls]
                 for url in urls:
                     redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
+                    redis_conn.srem(FAILED_URL_REDIS_KEY, url)
             tag_multiprocessing(urls, cookies2)
 
 
