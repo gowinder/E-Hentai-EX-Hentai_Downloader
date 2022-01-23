@@ -5,10 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: 当前文件",
+            "name": "crawler.py",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            "program": "crawler.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "test_qbt.py",
+            "type": "python",
+            "request": "launch",
+            "program": "test_qbt.py",
             "console": "integratedTerminal"
         }
     ]

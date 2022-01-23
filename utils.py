@@ -1,9 +1,14 @@
+import base64
+import json
+import logging
 import os
 import shutil
 import zipfile
 
+import qbittorrentapi
 import requests
 from dotenv import dotenv_values
+from pyaria2 import Aria2RPC
 
 from log import log
 
@@ -54,3 +59,50 @@ def make_zip(folder_path, remove=True):
     if remove:
         shutil.rmtree(folder_path)
     return zip_filename
+
+
+def send_qbt_task(torrent_file):
+    logging.getLogger('qbittorrentapi').setLevel(logging.DEBUG)
+
+    qbt_client = qbittorrentapi.Client(
+        host=env_config['QBT_HOST'],
+        port=int(env_config['QBT_PORT']),
+        username=env_config['QBT_USERNAME'],
+        password=env_config['QBT_PWD'],
+        RAISE_NOTIMPLEMENTEDERROR_FOR_UNIMPLEMENTED_API_ENDPOINTS=True)
+
+    try:
+        qbt_client.auth_log_in()
+        # log.info('qbt version: {}'.format(qbt_client.app_version()))
+        # log.info('qbt torrents info: {}'.format(qbt_client.torrents_info()))
+    except qbittorrentapi.LoginFailed as e:
+        log.error('qbittorrent login failed, %s', type(e))
+
+    category = env_config['QBT_CATEGORY']
+    if qbt_client.torrents_add(torrent_file=torrent_file,
+                               category=category,
+                               use_auto_torrent_management=True,
+                               is_paused=False):
+        log.info('qbittorrent add task [%s] success' % (category))
+        return True
+    else:
+        log.info('qbittorrent add task [%s] failed' % (category))
+        return False
+
+
+def send_aria_task(torrent_content):
+    torrent = base64.b64encode(torrent_content).decode('utf-8')
+    token = 'token:{}'.format(env_config['ARIA_RPC_SECRET'])
+    dir = 'dir:{}'.format(env_config['ARIA_DOWN_DIR'])
+    jsonreq = json.dumps({
+        'jsonrpc':
+        '2.0',
+        'id':
+        'qbt_api',
+        'method':
+        'aria2.addTorrent',
+        'params': [token, torrent],
+    })
+    
+    ret = requests.post(env_config['ARIA_RPC_ADDRESS'], jsonreq)
+    log.info('aria2 add task ret: %s' % ret)

@@ -14,10 +14,12 @@ import requests
 #from _overlapped import NULL
 from bs4 import BeautifulSoup
 from dotenv import dotenv_values
+from lxml import etree
 from redis import Redis
 
 from log import log
-from utils import get_requests_proxies, get_zip_filename_by_dir, make_zip
+from utils import (get_requests_proxies, get_zip_filename_by_dir, make_zip,
+                   send_aria_task, send_qbt_task)
 
 env_config = dotenv_values()
 
@@ -25,6 +27,7 @@ DOWNLOADED_URL_REDIS_KEY = 'crawler:url:downloaded'
 QUEUED_URL_REDIS_KEY = 'crawler:url:queued'
 DOWNLOADING_URL_REDIS_KEY = 'crawler:url:downloading'
 FAILED_URL_REDIS_KEY = 'crawler:url:failed'
+TORRENT_URL_REDIS_KEY = 'crawler:torrent:url'
 redis_conn = Redis.from_url(env_config['REDIS_URL'])
 MAX_RETRY = int(env_config['MAX_RETRY'])
 
@@ -332,7 +335,6 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
     except Exception as ex:
         log.error('menu_tag_urls, 错误,输入或网络问题, ex:%s', type(ex))
 
-
     return urls
 
 
@@ -348,6 +350,12 @@ def menu_tag_download(url, cookies2, spath, startTime1):
             site = requests.get(url, headers=headers, proxies=proxies)
         content = site.text
         soup = BeautifulSoup(content, 'lxml')
+
+        if find_torrent(soup, cookies2):
+            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+            redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
+            return
+
         table = soup.find_all(class_='ptt')
         tds = table[0].find_all('td')
         view_count = 0
@@ -505,3 +513,62 @@ def menu():
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     menu()
+
+
+def find_torrent(soup, cookies2):
+    g2s = soup.find_all(class_='g2')
+    for g2 in g2s:
+        onclick = g2.a['onclick']
+        if onclick and onclick.startswith(
+                'return popUp(\'https://exhentai.org/gallerytorrents.php'):
+            log.info('find_torrent, onclick:%s', onclick)
+            p = re.compile(".+?\'(.+?)\'")
+            ret = p.findall(onclick)
+            if len(ret) > 0 and ret[0].startswith(
+                    'https://exhentai.org/gallerytorrents.php'):
+                log.info('find_torrent, get torrent address: %s', ret[0])
+
+                response = requests.get(
+                    ret[0],
+                    headers=headers,
+                    cookies=cookies2,
+                )
+                content = response.text
+                soup = BeautifulSoup(content, 'lxml')
+                all_a = soup.find_all('a')
+                href = ''
+                find_a = None
+                for a in all_a:
+                    if a['href'].endswith('.torrent'):
+                        find_a = a
+                        break
+                if find_a:
+                    log.info('find_torrent, get torrent address: %s',
+                             find_a['onclick'])
+                else:
+                    log.info('find_torrent, can not get torrent address')
+                    return False
+
+                location = p.findall(find_a['onclick'])
+                if len(location) != 1:
+                    log.error(
+                        'find_torrent, get invalid onclick torrent address: {}'
+                        .format(location))
+                    return False
+                response = requests.get(
+                    location[0],
+                    headers=headers,
+                    cookies=cookies2,
+                )
+
+                # torrent_file = os.path.join(
+                #     env_config['DOWN_PATH'], '{}.torrent'.format(
+                #         os.path.basename(ret[0].split('/')[-1])))
+                # with open(torrent_file, 'wb') as f:
+                #     f.write(response.content)
+                if env_config['ENABLE_QBT_TORRENT'] == 'true':
+                    return send_qbt_task(torrent_file=response.content)
+                if env_config['ENABLE_ARIA_TORRENT'] == 'true':
+                    return send_aria_task(response.content)
+
+    return False
