@@ -55,7 +55,7 @@ async def saveFile(image_url, path, cookiep, bar_info):
         pass
 
     retry = 0
-    MAX_RETRY = 5
+    MAX_RETRY = env_config['MAX_RETRY']
     while retry < MAX_RETRY:
         try:
             timeout = float(env_config['CLIENT_TIMEOUT'])
@@ -153,7 +153,7 @@ async def getWebsite(url, time1, spath, cookiep, bar_info):
 
     exclude = set()
     retry = 0
-    MAX_RETRY = 5
+    MAX_RETRY = env_config['MAX_RETRY']
     failed_count = 0
     image_urls = []
     while retry < MAX_RETRY:
