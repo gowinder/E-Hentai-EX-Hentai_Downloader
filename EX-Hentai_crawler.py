@@ -26,6 +26,7 @@ QUEUED_URL_REDIS_KEY = 'crawler:url:queued'
 DOWNLOADING_URL_REDIS_KEY = 'crawler:url:downloading'
 FAILED_URL_REDIS_KEY = 'crawler:url:failed'
 redis_conn = Redis.from_url(env_config['REDIS_URL'])
+MAX_RETRY = int(env_config['MAX_RETRY'])
 
 proxies = get_requests_proxies()
 
@@ -55,7 +56,7 @@ async def saveFile(image_url, path, cookiep, bar_info):
         pass
 
     retry = 0
-    MAX_RETRY = env_config['MAX_RETRY']
+    #MAX_RETRY = env_config['MAX_RETRY']
     while retry < MAX_RETRY:
         try:
             timeout = float(env_config['CLIENT_TIMEOUT'])
@@ -142,8 +143,8 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
                     'alt': alt
                 })
         except Exception as ex:
-            log.error('无法下载 {}: {}.jpg, ex: {}'.format(
-                new_title2, alt, type(ex)))
+            log.error('无法下载 {}: {}.jpg, ex: {}'.format(new_title2, alt,
+                                                       type(ex)))
             continue
 
     return new_title2, image_urls
@@ -153,7 +154,7 @@ async def getWebsite(url, time1, spath, cookiep, bar_info):
 
     exclude = set()
     retry = 0
-    MAX_RETRY = env_config['MAX_RETRY']
+    # MAX_RETRY = env_config['MAX_RETRY']
     failed_count = 0
     image_urls = []
     while retry < MAX_RETRY:
