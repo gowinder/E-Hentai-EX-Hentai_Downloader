@@ -213,7 +213,7 @@ async def getWebsite(url, time1, spath, cookiep, bar_info):
         return True
     else:
         log.error('{} failed {}/{}'.format(new_title2, failed_count,
-                                           image_urls))
+                                           len(image_urls)))
 
         allowed_failed_percent = float(env_config['ALLOWED_FAILED_PERCENT'])
         failed_percent = failed_count * 100 / len(image_url)
