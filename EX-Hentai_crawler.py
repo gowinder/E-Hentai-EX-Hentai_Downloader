@@ -25,7 +25,7 @@ DOWNLOADED_URL_REDIS_KEY = 'crawler:url:downloaded'
 QUEUED_URL_REDIS_KEY = 'crawler:url:queued'
 DOWNLOADING_URL_REDIS_KEY = 'crawler:url:downloading'
 FAILED_URL_REDIS_KEY = 'crawler:url:failed'
-redis_conn = Redis.from_url(os.environ.get('REDIS_URL'))
+redis_conn = Redis.from_url(env_config['REDIS_URL'])
 
 proxies = get_requests_proxies()
 
