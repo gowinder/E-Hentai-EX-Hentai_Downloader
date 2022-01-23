@@ -378,6 +378,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
             os.mkdir(folder_path)
 
         index = 0
+        success = True
         with progressbar.ProgressBar(max_value=view_count * 20) as bar:
             bar_info = [bar, index]
             for view in range(0, view_count):
@@ -393,7 +394,12 @@ def menu_tag_download(url, cookies2, spath, startTime1):
                 if not ret:
                     log.error('{} 当前view:{}: failed asyncio job handle'.format(
                         new_title, view + 1))
-                    return
+                    success = False
+                    continue
+        if not success:
+            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY)
+            redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
+            return
 
         log.info('生成zip 文件: {}'.format(zip_filename))
         make_zip(folder_path, True)
