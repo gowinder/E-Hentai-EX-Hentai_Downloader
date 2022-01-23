@@ -397,7 +397,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
                     success = False
                     continue
         if not success:
-            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY)
+            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
             redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
             return
 
