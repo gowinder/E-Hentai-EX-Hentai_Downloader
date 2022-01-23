@@ -331,10 +331,9 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                     break
     except Exception as ex:
         log.error('menu_tag_urls, 错误,输入或网络问题, ex:%s', type(ex))
-        # raise ex
-        menu()
-    else:
-        return urls
+
+
+    return urls
 
 
 def menu_tag_download(url, cookies2, spath, startTime1):
@@ -364,7 +363,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         #     page = page + 1
     except Exception as ex:
         log.error('menu_tag_download: 错误,输入或网络问题: %s', ex)
-        menu()
+        return
     else:
         s = '本子名:{},views:{},开始爬取'.format(title, view_count)
         log.info(s)
