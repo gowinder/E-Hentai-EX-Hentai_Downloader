@@ -1,11 +1,8 @@
 import os
 import shutil
 import zipfile
-from logging import StreamHandler
-from turtle import dot
 
 import requests
-from charset_normalizer import logging
 from dotenv import dotenv_values
 
 from log import log
