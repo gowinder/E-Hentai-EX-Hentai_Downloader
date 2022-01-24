@@ -173,13 +173,21 @@ async def saveFile(image_url, path, cookiep, bar_info):
 def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
                              bar_info):
     image_urls = []
-    if cookiep != NULL:
-        site = requests.get(url,
-                            headers=headers,
-                            cookies=cookiep,
-                            proxies=proxies)
-    else:
-        site = requests.get(url, headers=headers, proxies=proxies)
+    retry = 0
+    while retry < 5:
+        try:
+            if cookiep != NULL:
+                site = requests.get(url,
+                                    headers=headers,
+                                    cookies=cookiep,
+                                    proxies=proxies)
+            else:
+                site = requests.get(url, headers=headers, proxies=proxies)
+            break
+        except Exception as ex:
+            log.error('get_view_images_url_list 无法获取 {}: {}, 重试: {}'.format(url, type(ex)))
+            retry += 1
+            time.sleep(1)
     content = site.text
     soup = BeautifulSoup(content, 'lxml')
     divs = soup.find_all(class_='gdtl')

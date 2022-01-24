@@ -7,3 +7,4 @@ services:
       - ${DOWN_PATH}:/download
       - ${ARIA_DOWN_DIR}:/download_bt
       - ./.env.docker:/usr/src/app/.env
+    restart: always
