@@ -128,3 +128,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 cookie.txt
+
+.env.docker
