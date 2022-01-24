@@ -186,7 +186,7 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
             break
         except Exception as ex:
             log.error('get_view_images_url_list 无法获取 {}: {}, 重试: {}'.format(
-                url, type(ex)))
+                url, type(ex), retry))
             retry += 1
             if retry >= 5:
                 return None, None
