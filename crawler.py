@@ -427,7 +427,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
 
         if find_torrent(soup, cookies2):
             redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
-            redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
+            redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
             return
 
         table = soup.find_all(class_='ptt')
