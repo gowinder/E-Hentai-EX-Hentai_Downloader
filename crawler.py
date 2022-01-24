@@ -174,7 +174,7 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
                              bar_info):
     image_urls = []
     retry = 0
-    while retry < 5:
+    while True:
         try:
             if cookiep != NULL:
                 site = requests.get(url,
@@ -185,8 +185,11 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
                 site = requests.get(url, headers=headers, proxies=proxies)
             break
         except Exception as ex:
-            log.error('get_view_images_url_list 无法获取 {}: {}, 重试: {}'.format(url, type(ex)))
+            log.error('get_view_images_url_list 无法获取 {}: {}, 重试: {}'.format(
+                url, type(ex)))
             retry += 1
+            if retry >= 5:
+                return None, None
             time.sleep(1)
     content = site.text
     soup = BeautifulSoup(content, 'lxml')
@@ -220,17 +223,21 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
     return new_title2, image_urls
 
 
-async def getWebsite(url, time1, spath, cookiep, bar_info):
+async def getWebsite(url, time1, spath, cookiep, bar_info) -> bool:
 
     exclude = set()
     retry = 0
     # MAX_RETRY = env_config['MAX_RETRY']
     failed_count = 0
     image_urls = []
-    while retry < MAX_RETRY:
+    while True:
+        if retry >= MAX_RETRY:
+            return False
         tasks = []
         new_title2, image_urls = get_view_images_url_list(
             exclude, url, time1, spath, cookiep, bar_info)
+        if not new_title2:
+            retry += 1
         for image in image_urls:
 
             log.debug('下载中 {}: {}.jpg'.format(new_title2, image['alt']))
