@@ -14,5 +14,5 @@ RUN apt update && apt install tzdata && cp /usr/share/zoneinfo/${TZ} /etc/localt
 WORKDIR /usr/src/app/
 COPY --from=base /usr/local /usr/local
 COPY . /usr/src/app/
-VOLUME [ "/download", "/download_bt" ]
+VOLUME [ "/download", "/download_bt", "/usr/src/app/.env" ]
 CMD python3 crawler.py
