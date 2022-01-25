@@ -418,6 +418,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                     ban_time,
                     (datetime.now() + ban_time).strftime('%Y-%m-%d %H:%M:%S')))
                 time.sleep(ban_time.total_seconds())
+                return []
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
             log.info('当前页面:' + url + str(int_page))
