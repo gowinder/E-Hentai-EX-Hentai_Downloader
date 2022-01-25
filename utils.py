@@ -95,14 +95,12 @@ def send_aria_task(torrent_content):
     token = 'token:{}'.format(env_config['ARIA_RPC_SECRET'])
     dir = 'dir:{}'.format(env_config['ARIA_DOWN_DIR'])
     jsonreq = json.dumps({
-        'jsonrpc':
-        '2.0',
-        'id':
-        'qbt_api',
-        'method':
-        'aria2.addTorrent',
+        'jsonrpc': '2.0',
+        'id': 'qbt_api',
+        'method': 'aria2.addTorrent',
         'params': [token, torrent],
     })
-    
+
     ret = requests.post(env_config['ARIA_RPC_ADDRESS'], jsonreq)
     log.info('aria2 add task ret: %s' % ret)
+    return ret
