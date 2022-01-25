@@ -130,3 +130,5 @@ dmypy.json
 cookie.txt
 
 .env.docker
+.env
+.vscode/*

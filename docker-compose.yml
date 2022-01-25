@@ -1,0 +1,15 @@
+version: "3.2"
+
+services:
+  crawler:
+    build: .
+    volumes:
+      - ${DOWN_PATH}:/download
+      - ${ARIA_DOWN_DIR}:/download_bt
+      - ./.env.docker:/usr/src/app/.env
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: "10m"

@@ -33,6 +33,8 @@ MAX_RETRY = int(env_config['MAX_RETRY'])
 
 proxies = get_requests_proxies()
 
+total_download = 0
+
 NULL = None
 headers = {
     'User-Agent':
@@ -46,6 +48,7 @@ headers = {
 
 
 def find_torrent(soup, cookies2):
+    global total_download
     g2s = soup.find_all(class_='g2')
     for g2 in g2s:
         onclick = g2.a['onclick']
@@ -96,10 +99,14 @@ def find_torrent(soup, cookies2):
                 #         os.path.basename(ret[0].split('/')[-1])))
                 # with open(torrent_file, 'wb') as f:
                 #     f.write(response.content)
+                ret = False
                 if env_config['ENABLE_QBT_TORRENT'] == 'true':
-                    return send_qbt_task(torrent_file=response.content)
+                    ret = send_qbt_task(torrent_file=response.content)
                 if env_config['ENABLE_ARIA_TORRENT'] == 'true':
-                    return send_aria_task(response.content)
+                    ret = send_aria_task(response.content)
+                log.info('#{} send torrent task: {}'.format(
+                    total_download, ret))
+                return ret
 
     return False
 
@@ -173,13 +180,24 @@ async def saveFile(image_url, path, cookiep, bar_info):
 def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
                              bar_info):
     image_urls = []
-    if cookiep != NULL:
-        site = requests.get(url,
-                            headers=headers,
-                            cookies=cookiep,
-                            proxies=proxies)
-    else:
-        site = requests.get(url, headers=headers, proxies=proxies)
+    retry = 0
+    while True:
+        try:
+            if cookiep != NULL:
+                site = requests.get(url,
+                                    headers=headers,
+                                    cookies=cookiep,
+                                    proxies=proxies)
+            else:
+                site = requests.get(url, headers=headers, proxies=proxies)
+            break
+        except Exception as ex:
+            log.error('get_view_images_url_list 无法获取 {}: {}, 重试: {}'.format(
+                url, type(ex), retry))
+            retry += 1
+            if retry >= 5:
+                return None, None
+            time.sleep(1)
     content = site.text
     soup = BeautifulSoup(content, 'lxml')
     divs = soup.find_all(class_='gdtl')
@@ -212,17 +230,21 @@ def get_view_images_url_list(exclude: set, url, time1, spath, cookiep,
     return new_title2, image_urls
 
 
-async def getWebsite(url, time1, spath, cookiep, bar_info):
+async def getWebsite(url, time1, spath, cookiep, bar_info) -> bool:
 
     exclude = set()
     retry = 0
     # MAX_RETRY = env_config['MAX_RETRY']
     failed_count = 0
     image_urls = []
-    while retry < MAX_RETRY:
+    while True:
+        if retry >= MAX_RETRY:
+            return False
         tasks = []
         new_title2, image_urls = get_view_images_url_list(
             exclude, url, time1, spath, cookiep, bar_info)
+        if not new_title2:
+            retry += 1
         for image in image_urls:
 
             log.debug('下载中 {}: {}.jpg'.format(new_title2, image['alt']))
@@ -398,6 +420,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
 
 
 def menu_tag_download(url, cookies2, spath, startTime1):
+    global total_download
     try:
         log.info('menu_tag_download: %s', url)
         if cookies2 != NULL:
@@ -412,7 +435,8 @@ def menu_tag_download(url, cookies2, spath, startTime1):
 
         if find_torrent(soup, cookies2):
             redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
-            redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
+            redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
+            total_download += 1
             return
 
         table = soup.find_all(class_='ptt')
@@ -432,7 +456,8 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         log.error('menu_tag_download: 错误,输入或网络问题: %s', ex)
         return
     else:
-        s = '本子名:{},views:{},开始爬取'.format(title, view_count)
+        s = '#{} 本子名:{},views:{},开始爬取'.format(total_download, title,
+                                              view_count)
         log.info(s)
         rr = r"[\/\\\:\*\?\"\<\>\|]"
         new_title = re.sub(rr, "-", title)
@@ -468,12 +493,13 @@ def menu_tag_download(url, cookies2, spath, startTime1):
             redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
             return
 
-        log.info('生成zip 文件: {}'.format(zip_filename))
+        log.info('#{} 生成zip 文件: {}'.format(total_download, zip_filename))
         make_zip(folder_path, True)
-        log.info('生成zip 文件: {} 完成'.format(zip_filename))
+        log.info('#{} 生成zip 文件: {} 完成'.format(total_download, zip_filename))
 
         redis_conn.sadd(DOWNLOADED_URL_REDIS_KEY, url)
         redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+        total_download += 1
 
 
 def tag_multiprocessing(m_urls: list, cookies2):
