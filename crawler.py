@@ -421,7 +421,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                 return []
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
-            log.info('当前页面:{}, tds count:{}'.format(url, len(tds)))
+            log.info('当前页面:{}, tds count:{}, content: {}'.format(url, len(tds), content))
             for index, a in enumerate(tds):
                 href = a.parent['href']
                 log.info(str(int_page * 25 + index + 1) + ':' + href)
