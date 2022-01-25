@@ -5,6 +5,7 @@ import os
 import re
 import time
 import urllib
+from datetime import datetime
 
 import aiofiles
 import httpx
@@ -19,8 +20,9 @@ from redis import Redis
 
 from log import log
 from qbt_torrent import qbt_upload_torrent_file
-from utils import (get_requests_proxies, get_zip_filename_by_dir, make_zip,
-                   send_aria_task, send_qbt_task)
+from utils import (get_ban_time_from_text, get_requests_proxies,
+                   get_zip_filename_by_dir, make_zip, send_aria_task,
+                   send_qbt_task)
 from version import VERSION
 
 env_config = dotenv_values()
@@ -409,6 +411,13 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                                     headers=headers,
                                     proxies=proxies)
             content = site.text
+            if content.startswith(
+                    'Your IP address has been temporarily banned'):
+                ban_time = get_ban_time_from_text(content)
+                log.warning('get banned, wait for: {}, at time: {}'.format(
+                    ban_time,
+                    (datetime.now() + ban_time).strftime('%Y-%m-%d %H:%M:%S')))
+                time.sleep(ban_time.total_seconds())
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
             log.info('当前页面:' + url + str(int_page))

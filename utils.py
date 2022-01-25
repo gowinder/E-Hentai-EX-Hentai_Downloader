@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import zipfile
+from datetime import timedelta
 
 import qbittorrentapi
 import requests
@@ -104,3 +105,29 @@ def send_aria_task(torrent_content):
     ret = requests.post(env_config['ARIA_RPC_ADDRESS'], jsonreq)
     log.info('aria2 add task ret: %s' % ret)
     return ret
+
+
+def get_numbers_from_text(text: str) -> list:
+    '''
+    ref: https://stackoverflow.com/questions/4289331/how-to-extract-numbers-from-a-string-in-python
+    '''
+    return [int(s) for s in text.split() if s.isdigit()]
+
+
+def get_ban_time_from_text(text: str) -> timedelta:
+    numbers = get_numbers_from_text(text)
+
+    if len(numbers) == 1:
+        return timedelta(seconds=numbers[0])
+    if len(numbers) == 2:
+        return timedelta(seconds=numbers[1], minutes=numbers[0])
+    if len(numbers) == 3:
+        return timedelta(seconds=numbers[2],
+                         minutes=numbers[1],
+                         hours=numbers[0])
+    if len(numbers) == 4:
+        return timedelta(seconds=numbers[3],
+                         minutes=numbers[2],
+                         hours=numbers[1],
+                         days=numbers[0])
+    return timedelta(seconds=0)
