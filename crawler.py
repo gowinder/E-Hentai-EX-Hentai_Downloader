@@ -347,7 +347,6 @@ def menu_single_download(e_or_ex, cookies2):
     startTime1 = time.time()
     if url.find('https://e-hentai.org/g/') != -1 or url.find(
             'https://exhentai.org/g/') != -1:
-        log.info('--获取信息中--')
         try:
             if (e_or_ex == "2"):
                 site = requests.get(url,
@@ -385,18 +384,16 @@ def menu_single_download(e_or_ex, cookies2):
         menu()
 
 
-def menu_tag_urls(cookies2, f_tag, f_tag_num):
+def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate):
     page_line_count = 25
     urls = []
-    if cookies2 != NULL:
-        url = 'https://exhentai.org/?f_cats=1019&f_search={}+&advsearch=1&f_stags=on&f_sr=on&f_srdd=4&page='.format(
-            f_tag)
-        # url = 'https://exhentai.org/?f_sr=on&f_srdd=4&f_cats=1019&f_search=' + f_tag + '&page='
-    else:
-        url = 'https://e-hentai.org/?f_sr=on&f_srdd=4&f_cats=1019&f_search=' + f_tag + '&page='
-
-    log.info('爬取前' + str(f_tag_num) + '本')
-    log.info('--获取信息中--')
+    base_url = 'https://exhentai.org'
+    if cookies2 == NULL:
+        base_url = 'https://e-hentai.org'
+    url = '{}/?f_cats=1019&f_search={}&advsearch=1&f_stags=on&f_sr=on&f_srdd={}&page='.format(
+        base_url, f_tag, star_rate)
+    log.info('开始搜索:{}, 页数:{}, 标签:{}, 星级:{}'.format(url, f_tag_num, f_tag,
+                                                   star_rate))
     try:
         int_pages = f_tag_num // page_line_count
         line_mod = f_tag_num % page_line_count
@@ -421,7 +418,10 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                 return []
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
-            log.info('当前页面:{}, tds count:{}, content: {}'.format(url, len(tds), content))
+            log.info('当前页面:{}, tds count:{}'.format(url, len(tds)))
+            if len(tds) < 1:
+                log.info('当前页面:{}, tds count:{}'.format(url, len(tds)))
+                return []
             for index, a in enumerate(tds):
                 href = a.parent['href']
                 log.info(str(int_page * 25 + index + 1) + ':' + href)
@@ -542,9 +542,7 @@ def tag_multiprocessing(m_urls: list, cookies2):
     # root.withdraw()
     # spath = filedialog.askdirectory() + "/"
     spath = env_config['DOWN_PATH'] + "/"
-    log.info('保存路径:%s', spath)
     startTime1 = time.time()
-    log.info('--获取信息中--')
     max_process_num = int(env_config['PROCESS_NUM'])
     for url in m_urls:
         menu_tag_download(url, cookies2, spath, startTime1)
@@ -560,10 +558,6 @@ def tag_multiprocessing(m_urls: list, cookies2):
 def menu():
     cookies2 = NULL
     m_urls = []
-    log.info("E-Hentai&EX-Hentai下载器V1.2")
-    log.info('可爬取e-hentai和exhentai的表里站下的内容')
-    log.info('Win10下使用可能会有卡住窗口缓冲区的问题，若遇到某张图片久久没有下载成功的情况，按任意键即可')
-    log.info('*****注意*****需要爬取ehentai还是exhentai?')
     #e_or_ex = input('ehentai输入1----exhentai输入2----按tag爬取输入3\n')
     e_or_ex = env_config['SEARCH_TYPE']
     if e_or_ex == "1":
@@ -585,39 +579,46 @@ def menu():
                 map(lambda x: x.split('='), cookies_input.split(";")))
         # f_tag = input(
         #     '输入tag--xxxx:xxx形式,多个tag示例--language:xx f:xxx--多个tag间用空格隔开\n')
-        f_tag = env_config['EH_TAG']
-        f_tag = urllib.parse.quote(f_tag)
-        log.info(f_tag)
-        # f_tag_num = input('输入下载数量\n')
-        f_tag_num = env_config['EH_DOWN_NUM']
-        f_tag_num = int(f_tag_num)
-        while True:
-            urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
-            urls.sort()
-            if len(urls) > 0:
-                urls = [url.decode('utf-8') for url in urls[:10]]
-                tag_multiprocessing(urls, cookies2)
+        f_tags = env_config['EH_TAGS']
+        f_language = env_config['EH_LANGUAGE']
+        star_rate = env_config['EH_STAR']
+        tags = f_tags.split(';')
+        for tag_index, tag in enumerate(tags):
+            if f_language:
+                tag = '{} + l:{}$'.format(tag, f_language)
+            f_tag = urllib.parse.quote(tag)
+            # f_tag_num = input('输入下载数量\n')
+            f_tag_num = env_config['EH_DOWN_NUM']
+            f_tag_num = int(f_tag_num)
+            log.info('开始搜索标签:{}, 数量:{}, 第{}/{}个'.format(
+                f_tag, f_tag_num, tag_index, len(tags)))
+            while True:
+                urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
+                urls.sort()
+                if len(urls) > 0:
+                    urls = [url.decode('utf-8') for url in urls[:10]]
+                    tag_multiprocessing(urls, cookies2)
 
-            m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num)
-            for url in m_urls:
-                redis_conn.sadd(QUEUED_URL_REDIS_KEY, url)
+                m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate)
+                for url in m_urls:
+                    redis_conn.sadd(QUEUED_URL_REDIS_KEY, url)
 
-            urls = list(redis_conn.smembers(QUEUED_URL_REDIS_KEY))[:10]
-            urls = [url.decode('utf-8') for url in urls]
-            for url in urls:
-                redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
-                redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
-            tag_multiprocessing(urls, cookies2)
-
-            if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
-                    and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
-                # use failed queue
-                urls = list(redis_conn.smembers(FAILED_URL_REDIS_KEY))[:10]
+                urls = list(redis_conn.smembers(QUEUED_URL_REDIS_KEY))[:10]
                 urls = [url.decode('utf-8') for url in urls]
                 for url in urls:
                     redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
-                    redis_conn.srem(FAILED_URL_REDIS_KEY, url)
-            tag_multiprocessing(urls, cookies2)
+                    redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
+                tag_multiprocessing(urls, cookies2)
+
+                if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
+                        and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
+                    # use failed queue
+                    urls = list(redis_conn.smembers(FAILED_URL_REDIS_KEY))[:10]
+                    urls = [url.decode('utf-8') for url in urls]
+                    for url in urls:
+                        redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
+                        redis_conn.srem(FAILED_URL_REDIS_KEY, url)
+                tag_multiprocessing(urls, cookies2)
 
 
 if __name__ == "__main__":
