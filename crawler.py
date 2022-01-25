@@ -421,7 +421,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                 return []
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
-            log.info('当前页面:' + url + str(int_page))
+            log.info('当前页面:{}, tds count:{}'.format(url, len(tds)))
             for index, a in enumerate(tds):
                 href = a.parent['href']
                 log.info(str(int_page * 25 + index + 1) + ':' + href)
@@ -431,6 +431,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                         index) or (f_tag_num > 25 and int_page == int_pages
                                    and index == line_mod - 1):
                     break
+            time.sleep(float(env_config['SLEEP_TIME_PER_BOOK']))
     except Exception as ex:
         log.error('menu_tag_urls, 错误,输入或网络问题, ex:%s', type(ex))
 
