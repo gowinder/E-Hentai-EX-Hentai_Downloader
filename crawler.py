@@ -18,6 +18,7 @@ from lxml import etree
 from redis import Redis
 
 from log import log
+from qbt_torrent import qbt_upload_torrent_file
 from utils import (get_requests_proxies, get_zip_filename_by_dir, make_zip,
                    send_aria_task, send_qbt_task)
 
@@ -94,14 +95,21 @@ def find_torrent(soup, cookies2):
                     cookies=cookies2,
                 )
 
-                # torrent_file = os.path.join(
-                #     env_config['DOWN_PATH'], '{}.torrent'.format(
-                #         os.path.basename(ret[0].split('/')[-1])))
-                # with open(torrent_file, 'wb') as f:
-                #     f.write(response.content)
+                torrent_file = os.path.join(
+                    env_config['DOWN_PATH'], '{}.torrent'.format(
+                        os.path.basename(ret[0].split('/')[-1])))
+                with open(torrent_file, 'wb') as f:
+                    f.write(response.content)
+
                 ret = False
                 if env_config['ENABLE_QBT_TORRENT'] == 'true':
-                    ret = send_qbt_task(torrent_file=response.content)
+                    #ret = send_qbt_task(torrent_file=response.content)
+                    ret = qbt_upload_torrent_file(env_config['QBT_HOST'],
+                                                  env_config['QBT_USERNAME'],
+                                                  env_config['QBT_PWD'],
+                                                  torrent_file,
+                                                  env_config['QBT_CATEGORY'],
+                                                  env_config['QBT_REMOVE_TORRENT_FILE'] == 'true')
                 if env_config['ENABLE_ARIA_TORRENT'] == 'true':
                     ret = send_aria_task(response.content)
                 log.info('#{} send torrent task: {}'.format(
