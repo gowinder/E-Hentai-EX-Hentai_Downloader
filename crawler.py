@@ -5,6 +5,7 @@ import os
 import re
 import time
 import urllib
+from datetime import datetime
 
 import aiofiles
 import httpx
@@ -19,8 +20,10 @@ from redis import Redis
 
 from log import log
 from qbt_torrent import qbt_upload_torrent_file
-from utils import (get_requests_proxies, get_zip_filename_by_dir, make_zip,
-                   send_aria_task, send_qbt_task)
+from utils import (get_ban_time_from_text, get_requests_proxies,
+                   get_zip_filename_by_dir, make_zip, send_aria_task,
+                   send_qbt_task)
+from version import VERSION
 
 env_config = dotenv_values()
 
@@ -104,12 +107,11 @@ def find_torrent(soup, cookies2):
                 ret = False
                 if env_config['ENABLE_QBT_TORRENT'] == 'true':
                     #ret = send_qbt_task(torrent_file=response.content)
-                    ret = qbt_upload_torrent_file(env_config['QBT_HOST'],
-                                                  env_config['QBT_USERNAME'],
-                                                  env_config['QBT_PWD'],
-                                                  torrent_file,
-                                                  env_config['QBT_CATEGORY'],
-                                                  env_config['QBT_REMOVE_TORRENT_FILE'] == 'true')
+                    ret = qbt_upload_torrent_file(
+                        env_config['QBT_HOST'], env_config['QBT_USERNAME'],
+                        env_config['QBT_PWD'], torrent_file,
+                        env_config['QBT_CATEGORY'],
+                        env_config['QBT_REMOVE_TORRENT_FILE'] == 'true')
                 if env_config['ENABLE_ARIA_TORRENT'] == 'true':
                     ret = send_aria_task(response.content)
                 log.info('#{} send torrent task: {}'.format(
@@ -409,6 +411,13 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num):
                                     headers=headers,
                                     proxies=proxies)
             content = site.text
+            if content.startswith(
+                    'Your IP address has been temporarily banned'):
+                ban_time = get_ban_time_from_text(content)
+                log.warning('get banned, wait for: {}, at time: {}'.format(
+                    ban_time,
+                    (datetime.now() + ban_time).strftime('%Y-%m-%d %H:%M:%S')))
+                time.sleep(ban_time.total_seconds())
             soup = BeautifulSoup(content, 'lxml')
             tds = soup.find_all(class_='glname')
             log.info('当前页面:' + url + str(int_page))
@@ -447,6 +456,10 @@ def menu_tag_download(url, cookies2, spath, startTime1):
             total_download += 1
             return
 
+        if env_config['ENABLE_IMAGE_DOWNLOAD'] != 'true':
+            log.info('ENABLE_IMAGE_DOWNLOAD is false, skip image download')
+            return
+
         table = soup.find_all(class_='ptt')
         tds = table[0].find_all('td')
         view_count = 0
@@ -482,6 +495,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         with progressbar.ProgressBar(max_value=view_count * 20) as bar:
             bar_info = [bar, index]
             for view in range(0, view_count):
+                time.sleep(float(env_config['SLEEP_TIME_PER_VIEW_PAGE']))
                 log.debug('当前view:{}'.format(view + 1))
                 if view == 0:
                     view_url = url
@@ -532,6 +546,7 @@ def tag_multiprocessing(m_urls: list, cookies2):
     max_process_num = int(env_config['PROCESS_NUM'])
     for url in m_urls:
         menu_tag_download(url, cookies2, spath, startTime1)
+        time.sleep(float(env_config['SLEEP_TIME_PER_BOOK']))
     # pool = multiprocessing.Pool(processes=max_process_num)
     # for url in m_urls:
     #     log.info(url)
@@ -604,5 +619,6 @@ def menu():
 
 
 if __name__ == "__main__":
+    log.info('e-hentai crawler, version:{}'.format(VERSION))
     multiprocessing.freeze_support()
     menu()
