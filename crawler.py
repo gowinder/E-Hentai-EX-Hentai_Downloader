@@ -592,33 +592,32 @@ def menu():
             f_tag_num = int(f_tag_num)
             log.info('开始搜索标签:{}, 数量:{}, 第{}/{}个'.format(
                 f_tag, f_tag_num, tag_index, len(tags)))
-            while True:
-                urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
-                urls.sort()
-                if len(urls) > 0:
-                    urls = [url.decode('utf-8') for url in urls[:10]]
-                    tag_multiprocessing(urls, cookies2)
+            urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
+            urls.sort()
+            if len(urls) > 0:
+                urls = [url.decode('utf-8') for url in urls[:10]]
+                tag_multiprocessing(urls, cookies2)
 
-                m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate)
-                for url in m_urls:
-                    redis_conn.sadd(QUEUED_URL_REDIS_KEY, url)
+            m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate)
+            for url in m_urls:
+                redis_conn.sadd(QUEUED_URL_REDIS_KEY, url)
 
-                urls = list(redis_conn.smembers(QUEUED_URL_REDIS_KEY))[:10]
+            urls = list(redis_conn.smembers(QUEUED_URL_REDIS_KEY))[:10]
+            urls = [url.decode('utf-8') for url in urls]
+            for url in urls:
+                redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
+                redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
+            tag_multiprocessing(urls, cookies2)
+
+            if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
+                    and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
+                # use failed queue
+                urls = list(redis_conn.smembers(FAILED_URL_REDIS_KEY))[:10]
                 urls = [url.decode('utf-8') for url in urls]
                 for url in urls:
                     redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
-                    redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
-                tag_multiprocessing(urls, cookies2)
-
-                if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
-                        and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
-                    # use failed queue
-                    urls = list(redis_conn.smembers(FAILED_URL_REDIS_KEY))[:10]
-                    urls = [url.decode('utf-8') for url in urls]
-                    for url in urls:
-                        redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
-                        redis_conn.srem(FAILED_URL_REDIS_KEY, url)
-                tag_multiprocessing(urls, cookies2)
+                    redis_conn.srem(FAILED_URL_REDIS_KEY, url)
+            tag_multiprocessing(urls, cookies2)
 
 
 if __name__ == "__main__":
