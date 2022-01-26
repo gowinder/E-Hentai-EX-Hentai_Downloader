@@ -425,7 +425,7 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate):
                 return []
             for index, a in enumerate(tds):
                 href = a.parent['href']
-                log.info(str(int_page * 25 + index + 1) + ':' + href)
+                log.debug(str(int_page * 25 + index + 1) + ':' + href)
                 urls.append(href)
 
                 if (25 > f_tag_num - 1 ==
