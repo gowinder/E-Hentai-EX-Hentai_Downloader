@@ -32,6 +32,7 @@ QUEUED_URL_REDIS_KEY = 'crawler:url:queued'
 DOWNLOADING_URL_REDIS_KEY = 'crawler:url:downloading'
 FAILED_URL_REDIS_KEY = 'crawler:url:failed'
 TORRENT_URL_REDIS_KEY = 'crawler:torrent:url'
+SKIPPED_URL_REDIS_KEY = 'crawler:skipped:url'
 redis_conn = Redis.from_url(env_config['REDIS_URL'])
 MAX_RETRY = int(env_config['MAX_RETRY'])
 
@@ -460,6 +461,8 @@ def menu_tag_download(url, cookies2, spath, startTime1):
 
         if env_config['ENABLE_IMAGE_DOWNLOAD'] != 'true':
             log.info('ENABLE_IMAGE_DOWNLOAD is false, skip image download')
+            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+            redis_conn.sadd(SKIPPED_URL_REDIS_KEY, url)
             return
 
         table = soup.find_all(class_='ptt')
