@@ -522,7 +522,8 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate, original_tag):
     return urls
 
 
-def menu_tag_download(url, cookies2, spath, startTime1, original_tag):
+def menu_tag_download(url, cookies2, spath, startTime1, original_tag,
+                      set_key_name):
     global total_download
     try:
         log.info('menu_tag_download, tag:{}, url:{}'.format(original_tag, url))
@@ -542,15 +543,18 @@ def menu_tag_download(url, cookies2, spath, startTime1, original_tag):
 
         if not downloaded:
             if find_torrent(soup, cookies2, original_tag):
-                redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+                redis_conn.srem(set_key_name, url)
                 redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
                 total_download += 1
                 return
 
             elif env_config['ENABLE_IMAGE_DOWNLOAD'] != 'true':
                 log.info('ENABLE_IMAGE_DOWNLOAD is false, skip image download')
-                redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+                redis_conn.srem(set_key_name, url)
                 redis_conn.sadd(SKIPPED_URL_REDIS_KEY, url)
+        else:
+            total_download += 1
+            return
 
         table = soup.find_all(class_='ptt')
         tds = table[0].find_all('td')
@@ -603,7 +607,7 @@ def menu_tag_download(url, cookies2, spath, startTime1, original_tag):
                     success = False
                     continue
         if not success:
-            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+            redis_conn.srem(set_key_name, url)
             redis_conn.sadd(FAILED_URL_REDIS_KEY, url)
             return
 
@@ -612,11 +616,11 @@ def menu_tag_download(url, cookies2, spath, startTime1, original_tag):
         log.info('#{} 生成zip 文件: {} 完成'.format(total_download, zip_filename))
 
         redis_conn.sadd(DOWNLOADED_URL_REDIS_KEY, url)
-        redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+        redis_conn.srem(set_key_name, url)
         total_download += 1
 
 
-def tag_multiprocessing(m_urls: list, cookies2, original_tag):
+def tag_multiprocessing(m_urls: list, cookies2, original_tag, set_key_name):
     # m_urls = ['https://e-hentai.org/g/2118247/5445976a9e/']
     if 'https://e-hentai.org/g/2118247/5445976a9e/' in m_urls:
         m_urls.remove('https://e-hentai.org/g/2118247/5445976a9e/')
@@ -625,6 +629,7 @@ def tag_multiprocessing(m_urls: list, cookies2, original_tag):
         if redis_conn.smismember(DOWNLOADED_URL_REDIS_KEY, url)[0]:
             m_urls.remove(url)
             log.info('{} 已经下载过了'.format(url))
+            redis_conn.srem(set_key_name, url)
             continue
 
     # print("选择保存位置文件夹")
@@ -635,7 +640,8 @@ def tag_multiprocessing(m_urls: list, cookies2, original_tag):
     startTime1 = time.time()
     max_process_num = int(env_config['PROCESS_NUM'])
     for url in m_urls:
-        menu_tag_download(url, cookies2, spath, startTime1, original_tag)
+        menu_tag_download(url, cookies2, spath, startTime1, original_tag,
+                          set_key_name)
         time.sleep(float(env_config['SLEEP_TIME_PER_BOOK']))
     # pool = multiprocessing.Pool(processes=max_process_num)
     # for url in m_urls:
@@ -700,7 +706,7 @@ def menu():
             for url in urls:
                 redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
                 redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
-            tag_multiprocessing(urls, cookies2, tag)
+            tag_multiprocessing(urls, cookies2, tag, DOWNLOADING_URL_REDIS_KEY)
 
             if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
                     and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
@@ -710,7 +716,7 @@ def menu():
                 for url in urls:
                     redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
                     redis_conn.srem(FAILED_URL_REDIS_KEY, url)
-            tag_multiprocessing(urls, cookies2, tag)
+            tag_multiprocessing(urls, cookies2, tag, QUEUED_URL_REDIS_KEY)
 
 
 def download_redis_set(cookies2, set_key_name):
@@ -719,7 +725,7 @@ def download_redis_set(cookies2, set_key_name):
     urls.sort()
     if len(urls) > 0:
         urls = [url.decode('utf-8') for url in urls[:10]]
-        tag_multiprocessing(urls, cookies2, "")
+        tag_multiprocessing(urls, cookies2, "", set_key_name)
 
 
 if __name__ == "__main__":
