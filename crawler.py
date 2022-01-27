@@ -6,6 +6,7 @@ import re
 import time
 import urllib
 from datetime import datetime
+from distutils import archive_util
 
 import aiofiles
 import httpx
@@ -20,9 +21,9 @@ from redis import Redis
 
 from log import log
 from qbt_torrent import qbt_upload_torrent_file
-from utils import (get_ban_time_from_text, get_requests_proxies,
-                   get_zip_filename_by_dir, make_zip, send_aria_task,
-                   send_qbt_task)
+from utils import (download_file, get_archive_download_form, get_ban_time_from_text,
+                   get_requests_proxies, get_zip_filename_by_dir, make_zip, replace_url_path,
+                   send_aria_task, send_qbt_task, tag_to_path)
 from version import VERSION
 
 env_config = dotenv_values()
@@ -50,6 +51,76 @@ headers = {
     'Upgrade-Insecure-Requests':
     '1'
 }
+
+
+def download_archive(soup, cookies2, spath, original_tag):
+    global total_download
+    g2s_gsp_list = soup.find_all(class_='g2 gsp')
+    for g2_gsp in g2s_gsp_list:
+        onclick = g2_gsp.a['onclick']
+        if onclick and onclick.find('archiver.php') != -1:
+            log.debug('download_archive, onclick:%s', onclick)
+            p = re.compile(".+?\'(.+?)\'")
+            ret = p.findall(onclick)
+            if len(ret) > 0 and ret[0].startswith(
+                    'https://exhentai.org/archiver.php'):
+                log.debug('download_archive, get archive page address: %s',
+                          ret[0])
+
+                response = requests.get(
+                    ret[0],
+                    headers=headers,
+                    cookies=cookies2,
+                )
+                content = response.text
+                soup = BeautifulSoup(content, 'lxml')
+                org_form, res_form = get_archive_download_form(soup)
+                selected_form = res_form
+                if env_config['ENABLE_DOWNLOAD_ARCHIVE_RESAMPLED'] == 'false':
+                    selected_form = org_form
+
+                form_headers = headers
+                form_headers[
+                    'Content-Type'] = 'application/x-www-form-urlencoded'
+                form_headers['Referer'] = ret[0]
+                form_data = {
+                    'dltype': selected_form.input['value'],
+                    'dlcheck': selected_form.div.input['value'],
+                }
+                resp = requests.post(selected_form['action'],
+                                     headers=form_headers,
+                                     cookies=cookies2,
+                                     data=form_data)
+                archive_soup = BeautifulSoup(resp.text, 'lxml')
+                p = archive_soup.find_all(id='continue')
+                if not p:
+                    log.error('download_archive, archive p not found')
+                    return False
+                href = p[0].a['href']
+                time.sleep(3)
+                resp = requests.get(href, headers=headers, cookies=cookies2)
+                archive_real_soup = BeautifulSoup(resp.text, 'lxml')
+                p = archive_real_soup.find_all('p')
+                if not p:
+                    log.error('download_archive, archive real p not found')
+                    return False
+                zip_url = replace_url_path(href, p[0].a['href'])
+                title = archive_real_soup.find_all('strong')[0].text
+                log.info('get archive:{} zip file url:{}'.format(title, zip_url))
+                if env_config['ARCHIVE_DOWNLOAD_BY_ARIA'] == 'true':
+                    pass
+                else:
+                    path = env_config['DOWN_PATH']
+                    original_tag = 'no_tag' if original_tag == '' else original_tag
+                    tag_path = os.path.join(path, original_tag)
+                    if not os.path.exists(tag_path):
+                        os.makedirs(tag_path)
+                    filename = '{}.zip'.format(title)
+                    filename = os.path.join(tag_path, filename)
+                    return download_file(filename, zip_url, cookies2)
+
+                return True
+    return False
 
 
 def find_torrent(soup, cookies2, original_tag):
@@ -454,17 +525,21 @@ def menu_tag_download(url, cookies2, spath, startTime1, original_tag):
         content = site.text
         soup = BeautifulSoup(content, 'lxml')
 
-        if find_torrent(soup, cookies2, original_tag):
-            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
-            redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
-            total_download += 1
-            return
+        downloaded = False
+        if env_config['ENABLE_DOWNLOAD_ARCHIVE'] == 'true':
+            downloaded = download_archive(soup, cookies2, spath, original_tag)
 
-        if env_config['ENABLE_IMAGE_DOWNLOAD'] != 'true':
-            log.info('ENABLE_IMAGE_DOWNLOAD is false, skip image download')
-            redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
-            redis_conn.sadd(SKIPPED_URL_REDIS_KEY, url)
-            return
+        if not downloaded:
+            if find_torrent(soup, cookies2, original_tag):
+                redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+                redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
+                total_download += 1
+                return
+
+            elif env_config['ENABLE_IMAGE_DOWNLOAD'] != 'true':
+                log.info('ENABLE_IMAGE_DOWNLOAD is false, skip image download')
+                redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
+                redis_conn.sadd(SKIPPED_URL_REDIS_KEY, url)
 
         table = soup.find_all(class_='ptt')
         tds = table[0].find_all('td')
