@@ -18,5 +18,13 @@
             "program": "test_qbt.py",
             "console": "integratedTerminal"
         }
+        },
+        {
+            "name": "test_archive.py",
+            "type": "python",
+            "request": "launch",
+            "program": "test_archive.py",
+            "console": "integratedTerminal"
+        }
     ]
 }
