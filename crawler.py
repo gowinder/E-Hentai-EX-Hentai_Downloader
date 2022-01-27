@@ -22,8 +22,8 @@ from redis import Redis
 from log import log
 from qbt_torrent import qbt_upload_torrent_file
 from utils import (download_file, get_archive_download_form, get_ban_time_from_text,
-                   get_requests_proxies, get_zip_filename_by_dir, make_zip, replace_url_path,
-                   send_aria_task, send_qbt_task, tag_to_path)
+                   get_requests_proxies, get_zip_filename_by_dir, make_zip, replace_url_path, send_aria_download_task,
+                   send_aria_torrent_task, send_qbt_task, tag_to_path)
 from version import VERSION
 
 env_config = dotenv_values()
@@ -107,11 +107,18 @@ def download_archive(soup, cookies2, spath, original_tag):
                 zip_url = replace_url_path(href, p[0].a['href'])
                 title = archive_real_soup.find_all('strong')[0].text
                 log.info('get archive:{} zip file url:{}'.format(title, zip_url))
+                original_tag = 'no_tag' if original_tag == '' else original_tag
                 if env_config['ARCHIVE_DOWNLOAD_BY_ARIA'] == 'true':
-                    pass
+                    log.info('send aria2 to download archive:{} zip file url:{}'.format(
+                        title, zip_url))
+                    path = env_config['ARIA_DOWN_DIR']
+                    tag_path = os.path.join(path, original_tag)
+                    return send_aria_download_task(title, zip_url, tag_path)
                 else:
+                    log.info(
+                        'direct download archive:{} zip file url:{}'.
+                        format(title, zip_url))
                     path = env_config['DOWN_PATH']
-                    original_tag = 'no_tag' if original_tag == '' else original_tag
                     tag_path = os.path.join(path, original_tag)
                     if not os.path.exists(tag_path):
                         os.makedirs(tag_path)
@@ -186,7 +193,7 @@ def find_torrent(soup, cookies2, original_tag):
                         env_config['QBT_REMOVE_TORRENT_FILE'] == 'true',
                         original_tag)
                 if env_config['ENABLE_ARIA_TORRENT'] == 'true':
-                    ret = send_aria_task(response.content)
+                    ret = send_aria_torrent_task(response.content)
                 log.info('#{} send torrent task: {}'.format(
                     total_download, ret))
                 return ret

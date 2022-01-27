@@ -93,7 +93,7 @@ def send_qbt_task(torrent_file):
         return False
 
 
-def send_aria_task(torrent_content):
+def send_aria_torrent_task(torrent_content):
     torrent = base64.b64encode(torrent_content).decode('utf-8')
     token = 'token:{}'.format(env_config['ARIA_RPC_SECRET'])
     dir = 'dir:{}'.format(env_config['ARIA_DOWN_DIR'])
@@ -107,6 +107,27 @@ def send_aria_task(torrent_content):
     ret = requests.post(env_config['ARIA_RPC_ADDRESS'], jsonreq)
     log.info('aria2 add task ret: %s' % ret)
     return ret
+
+
+def send_aria_download_task(title, url, path):
+    token = 'token:{}'.format(env_config['ARIA_RPC_SECRET'])
+    jsonreq = json.dumps({
+        'jsonrpc': '2.0',
+        'id': 'qbt_api',
+        'method': 'aria2.addUri',
+        'params': [token, [url], {
+            'dir': path
+        }],
+    })
+
+    ret = requests.post(env_config['ARIA_RPC_ADDRESS'], jsonreq)
+    if ret.status_code == 200:
+        log.info('send aria download {} success'.format(title))
+        return True
+    else:
+        log.info('send aria download {} failed, status code: {}'.format(
+            title, ret.status_code))
+        return False
 
 
 def get_numbers_from_text(text: str) -> list:
@@ -185,4 +206,5 @@ def download_file(filename, url, cookies):
         log.error('download_file failed, file:{}, url:{}, exception:{}'.format(
             filename, url, type(ex)))
         return False
+    log.info('{} download completed'.format(filename))
     return True
