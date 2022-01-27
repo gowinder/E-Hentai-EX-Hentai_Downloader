@@ -7,7 +7,7 @@ from log import log
 
 
 def qbt_upload_torrent_file(root_url, username, pwd, torrent_filename,
-                            category, remove_torrent_file: bool):
+                            category, remove_torrent_file: bool, tag):
     try:
         headers = {'Referer': root_url}
         login_data = {'username': username, 'password': pwd}
@@ -43,6 +43,7 @@ def qbt_upload_torrent_file(root_url, username, pwd, torrent_filename,
         files_data = {
             'category': category,
             'autoTMM': True,
+            'tags': tag,
         }
 
         resp = requests.post(new_torrent_url,

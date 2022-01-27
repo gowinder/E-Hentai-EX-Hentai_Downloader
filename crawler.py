@@ -52,7 +52,7 @@ headers = {
 }
 
 
-def find_torrent(soup, cookies2):
+def find_torrent(soup, cookies2, original_tag):
     global total_download
     g2s = soup.find_all(class_='g2')
     for g2 in g2s:
@@ -385,7 +385,7 @@ def menu_single_download(e_or_ex, cookies2):
         menu()
 
 
-def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate):
+def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate, original_tag):
     page_line_count = 25
     urls = []
     base_url = 'https://exhentai.org'
@@ -393,8 +393,8 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate):
         base_url = 'https://e-hentai.org'
     url = '{}/?f_cats=1019&f_search={}&advsearch=1&f_stags=on&f_sr=on&f_srdd={}&page='.format(
         base_url, f_tag, star_rate)
-    log.info('开始搜索:{}, 页数:{}, 标签:{}, 星级:{}'.format(url, f_tag_num, f_tag,
-                                                   star_rate))
+    log.info('开始搜索:{}, 页数:{}, 标签:{}, original tag:{}, 星级:{}'.format(
+        url, f_tag_num, f_tag, original_tag, star_rate))
     try:
         int_pages = f_tag_num // page_line_count
         line_mod = f_tag_num % page_line_count
@@ -439,10 +439,10 @@ def menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate):
     return urls
 
 
-def menu_tag_download(url, cookies2, spath, startTime1):
+def menu_tag_download(url, cookies2, spath, startTime1, original_tag):
     global total_download
     try:
-        log.info('menu_tag_download: %s', url)
+        log.info('menu_tag_download, tag:{}, url:{}'.format(original_tag, url))
         if cookies2 != NULL:
             site = requests.get(url,
                                 headers=headers,
@@ -453,7 +453,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         content = site.text
         soup = BeautifulSoup(content, 'lxml')
 
-        if find_torrent(soup, cookies2):
+        if find_torrent(soup, cookies2, original_tag):
             redis_conn.srem(DOWNLOADING_URL_REDIS_KEY, url)
             redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
             total_download += 1
@@ -529,7 +529,7 @@ def menu_tag_download(url, cookies2, spath, startTime1):
         total_download += 1
 
 
-def tag_multiprocessing(m_urls: list, cookies2):
+def tag_multiprocessing(m_urls: list, cookies2, original_tag):
     # m_urls = ['https://e-hentai.org/g/2118247/5445976a9e/']
     if 'https://e-hentai.org/g/2118247/5445976a9e/' in m_urls:
         m_urls.remove('https://e-hentai.org/g/2118247/5445976a9e/')
@@ -548,7 +548,7 @@ def tag_multiprocessing(m_urls: list, cookies2):
     startTime1 = time.time()
     max_process_num = int(env_config['PROCESS_NUM'])
     for url in m_urls:
-        menu_tag_download(url, cookies2, spath, startTime1)
+        menu_tag_download(url, cookies2, spath, startTime1, original_tag)
         time.sleep(float(env_config['SLEEP_TIME_PER_BOOK']))
     # pool = multiprocessing.Pool(processes=max_process_num)
     # for url in m_urls:
@@ -594,14 +594,14 @@ def menu():
             f_tag_num = env_config['EH_DOWN_NUM']
             f_tag_num = int(f_tag_num)
             log.info('开始搜索标签:{}, 数量:{}, 第{}/{}个'.format(
-                f_tag, f_tag_num, tag_index, len(tags)))
+                tag, f_tag_num, tag_index, len(tags)))
             urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
             urls.sort()
             if len(urls) > 0:
                 urls = [url.decode('utf-8') for url in urls[:10]]
-                tag_multiprocessing(urls, cookies2)
+                tag_multiprocessing(urls, cookies2, tag)
 
-            m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate)
+            m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate, tag)
             for url in m_urls:
                 redis_conn.sadd(QUEUED_URL_REDIS_KEY, url)
 
@@ -610,7 +610,7 @@ def menu():
             for url in urls:
                 redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
                 redis_conn.srem(QUEUED_URL_REDIS_KEY, url)
-            tag_multiprocessing(urls, cookies2)
+            tag_multiprocessing(urls, cookies2, tag)
 
             if (redis_conn.scard(DOWNLOADED_URL_REDIS_KEY) == 0
                     and redis_conn.scard(QUEUED_URL_REDIS_KEY) == 0):
@@ -620,7 +620,7 @@ def menu():
                 for url in urls:
                     redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
                     redis_conn.srem(FAILED_URL_REDIS_KEY, url)
-            tag_multiprocessing(urls, cookies2)
+            tag_multiprocessing(urls, cookies2, tag)
 
 
 if __name__ == "__main__":
