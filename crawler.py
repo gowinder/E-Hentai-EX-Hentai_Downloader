@@ -554,6 +554,8 @@ def menu_tag_download(url, cookies2, spath, startTime1, original_tag,
                 redis_conn.sadd(SKIPPED_URL_REDIS_KEY, url)
         else:
             total_download += 1
+            redis_conn.srem(set_key_name, url)
+            redis_conn.sadd(DOWNLOADED_URL_REDIS_KEY, url)
             return
 
         table = soup.find_all(class_='ptt')
