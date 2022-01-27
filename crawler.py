@@ -112,7 +112,8 @@ def find_torrent(soup, cookies2, original_tag):
                         env_config['QBT_HOST'], env_config['QBT_USERNAME'],
                         env_config['QBT_PWD'], torrent_file,
                         env_config['QBT_CATEGORY'],
-                        env_config['QBT_REMOVE_TORRENT_FILE'] == 'true')
+                        env_config['QBT_REMOVE_TORRENT_FILE'] == 'true',
+                        original_tag)
                 if env_config['ENABLE_ARIA_TORRENT'] == 'true':
                     ret = send_aria_task(response.content)
                 log.info('#{} send torrent task: {}'.format(
