@@ -21,9 +21,11 @@ from redis import Redis
 
 from log import log
 from qbt_torrent import qbt_upload_torrent_file
-from utils import (download_file, get_archive_download_form, get_ban_time_from_text,
-                   get_requests_proxies, get_zip_filename_by_dir, make_zip, replace_url_path, send_aria_download_task,
-                   send_aria_torrent_task, send_qbt_task, tag_to_path)
+from utils import (download_file, get_archive_download_form,
+                   get_ban_time_from_text, get_requests_proxies,
+                   get_zip_filename_by_dir, make_zip, replace_url_path,
+                   send_aria_download_task, send_aria_torrent_task,
+                   send_qbt_task, tag_to_path)
 from version import VERSION
 
 env_config = dotenv_values()
@@ -106,18 +108,20 @@ def download_archive(soup, cookies2, spath, original_tag):
                     return False
                 zip_url = replace_url_path(href, p[0].a['href'])
                 title = archive_real_soup.find_all('strong')[0].text
-                log.info('get archive:{} zip file url:{}'.format(title, zip_url))
+                log.info('get archive:{} zip file url:{}'.format(
+                    title, zip_url))
                 original_tag = 'no_tag' if original_tag == '' else original_tag
                 if env_config['ARCHIVE_DOWNLOAD_BY_ARIA'] == 'true':
-                    log.info('send aria2 to download archive:{} zip file url:{}'.format(
-                        title, zip_url))
+                    log.info(
+                        'send aria2 to download archive:{} zip file url:{}'.
+                        format(title, zip_url))
                     path = env_config['ARIA_DOWN_DIR']
                     tag_path = os.path.join(path, original_tag)
                     return send_aria_download_task(title, zip_url, tag_path)
                 else:
                     log.info(
-                        'direct download archive:{} zip file url:{}'.
-                        format(title, zip_url))
+                        'direct download archive:{} zip file url:{}'.format(
+                            title, zip_url))
                     path = env_config['DOWN_PATH']
                     tag_path = os.path.join(path, original_tag)
                     if not os.path.exists(tag_path):
@@ -663,8 +667,16 @@ def menu():
             cookies_input = env_config['EH_COOKIE']
             cookies2 = dict(
                 map(lambda x: x.split('='), cookies_input.split(";")))
-        # f_tag = input(
-        #     '输入tag--xxxx:xxx形式,多个tag示例--language:xx f:xxx--多个tag间用空格隔开\n')
+
+        # resuming download
+        download_redis_set(cookies2, DOWNLOADING_URL_REDIS_KEY)
+
+        # continue queued
+        download_redis_set(cookies2, QUEUED_URL_REDIS_KEY)
+
+        # retry failed
+        download_redis_set(cookies2, FAILED_URL_REDIS_KEY)
+
         f_tags = env_config['EH_TAGS']
         f_language = env_config['EH_LANGUAGE']
         star_rate = env_config['EH_STAR']
@@ -678,11 +690,6 @@ def menu():
             f_tag_num = int(f_tag_num)
             log.info('开始搜索标签:{}, 数量:{}, 第{}/{}个'.format(
                 tag, f_tag_num, tag_index, len(tags)))
-            urls = list(redis_conn.smembers(DOWNLOADING_URL_REDIS_KEY))
-            urls.sort()
-            if len(urls) > 0:
-                urls = [url.decode('utf-8') for url in urls[:10]]
-                tag_multiprocessing(urls, cookies2, tag)
 
             m_urls = menu_tag_urls(cookies2, f_tag, f_tag_num, star_rate, tag)
             for url in m_urls:
@@ -704,6 +711,15 @@ def menu():
                     redis_conn.sadd(DOWNLOADING_URL_REDIS_KEY, url)
                     redis_conn.srem(FAILED_URL_REDIS_KEY, url)
             tag_multiprocessing(urls, cookies2, tag)
+
+
+def download_redis_set(cookies2, set_key_name):
+    urls = list(redis_conn.smembers(set_key_name))
+    log.info('{} urls in redis set:{}'.format(len(urls), set_key_name))
+    urls.sort()
+    if len(urls) > 0:
+        urls = [url.decode('utf-8') for url in urls[:10]]
+        tag_multiprocessing(urls, cookies2, "")
 
 
 if __name__ == "__main__":
