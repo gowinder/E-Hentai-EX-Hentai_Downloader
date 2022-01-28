@@ -43,7 +43,7 @@ def qbt_upload_torrent_file(root_url, username, pwd, torrent_filename,
         files_data = {
             'category': category,
             'autoTMM': True,
-            'tags': tag,
+            #'tags': tag,
         }
 
         resp = requests.post(new_torrent_url,
