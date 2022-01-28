@@ -539,9 +539,12 @@ def menu_tag_download(url, cookies2, spath, startTime1, original_tag,
 
         downloaded = False
         if env_config['ENABLE_DOWNLOAD_ARCHIVE'] == 'true':
+            log.info(
+                'ENABLE_DOWNLOAD_ARCHIVE == true, start download arichve file')
             downloaded = download_archive(soup, cookies2, spath, original_tag)
 
         if not downloaded:
+            log.info('downladed is False, start check torrent')
             if find_torrent(soup, cookies2, original_tag):
                 redis_conn.srem(set_key_name, url)
                 redis_conn.sadd(TORRENT_URL_REDIS_KEY, url)
