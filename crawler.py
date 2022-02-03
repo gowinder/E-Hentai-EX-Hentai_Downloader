@@ -21,7 +21,7 @@ from redis import Redis
 
 from log import log
 from qbt_torrent import qbt_upload_torrent_file
-from utils import (download_file, get_archive_download_form,
+from utils import (download_file, filter_tag, get_archive_download_form,
                    get_ban_time_from_text, get_requests_proxies,
                    get_zip_filename_by_dir, make_zip, replace_url_path,
                    send_aria_download_task, send_aria_torrent_task,
@@ -110,7 +110,7 @@ def download_archive(soup, cookies2, spath, original_tag):
                 title = archive_real_soup.find_all('strong')[0].text
                 log.info('get archive:{} zip file url:{}'.format(
                     title, zip_url))
-                original_tag = 'no_tag' if original_tag == '' else original_tag
+                original_tag = 'no_tag' if original_tag == '' else filter_tag(original_tag)
                 if env_config['ARCHIVE_DOWNLOAD_BY_ARIA'] == 'true':
                     log.info(
                         'send aria2 to download archive:{} zip file url:{}'.

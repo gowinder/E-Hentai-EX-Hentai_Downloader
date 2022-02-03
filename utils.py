@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import re
 import shutil
 import zipfile
 from datetime import timedelta
@@ -208,3 +209,7 @@ def download_file(filename, url, cookies):
         return False
     log.info('{} download completed'.format(filename))
     return True
+
+
+def filter_tag(tag_str: str) -> str:
+    return re.sub('[^a-zA-Z0-9 \n\.]', '_', tag_str)
